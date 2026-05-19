@@ -1,0 +1,51 @@
+{
+  "name": "openchat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "vitest run",
+    "typecheck": "next typegen && tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "worker": "tsx worker/index.ts",
+    "realtime": "tsx src/realtime/server.ts"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "drizzle-orm": "^0.45.2",
+    "ioredis": "^5.4.2",
+    "lucide-react": "^0.468.0",
+    "nanoid": "^5.0.7",
+    "next": "^15.5.18",
+    "nodemailer": "^8.0.7",
+    "pg": "^8.13.1",
+    "postcss": "^8.5.10",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "zod": "^3.23.8"
+  },
+  "overrides": {
+    "postcss": "$postcss"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/nodemailer": "^8.0.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^9.16.0",
+    "eslint-config-next": "^15.5.18",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.6"
+  }
+}

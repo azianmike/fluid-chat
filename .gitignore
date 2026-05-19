@@ -1,0 +1,9 @@
+node_modules
+.next
+dist
+.env
+.env.local
+drizzle
+exports
+*.log
+*.tsbuildinfo
