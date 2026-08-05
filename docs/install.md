@@ -1,5 +1,11 @@
 # Install Guide
 
+## Requirements
+
+- Node.js 20+
+- Postgres 14+
+- Redis (optional — only needed when running more than one app or realtime process)
+
 ## Docker Compose
 
 ```bash
@@ -7,15 +13,49 @@ cp .env.example .env
 docker compose up
 ```
 
-The stack starts the Next.js app, Postgres, Redis, realtime server, worker, and optional MinIO.
+The stack starts the Next.js app (which runs migrations on boot), Postgres, Redis, the realtime
+server, the worker, and an optional MinIO. Uploads and exports live in named volumes.
 
-## Local Development
+Open http://localhost:3000, create an account, and the first workspace you create makes you its
+owner with `#general` and `#random` ready to go.
+
+## Local development
 
 ```bash
+cp .env.example .env          # point DATABASE_URL at your Postgres
 npm install
-npm run db:generate
-npm run db:migrate
-npm run dev
+npm run db:migrate            # apply migrations
+npm run dev                   # http://localhost:3000
+npm run realtime              # second terminal: websockets on :3001
+npm run worker                # third terminal: scheduled sends, reminders, exports
 ```
 
-Use `npm run realtime` and `npm run worker` in separate terminals when testing realtime fanout and exports.
+Create the database first if you need to:
+
+```bash
+createuser openchat --createdb
+createdb -O openchat openchat
+```
+
+## Production
+
+```bash
+npm ci
+npm run build
+npm run db:migrate
+npm run start          # app
+npm run realtime       # websocket server
+npm run worker         # background jobs
+```
+
+Put a TLS terminator in front (see [HTTPS and domains](https-domain.md)), set `APP_URL` and
+`NEXT_PUBLIC_REALTIME_URL` to the public URLs, and set `REALTIME_TOKEN` so only your app can
+publish events. Persist `UPLOAD_DIR` and `EXPORT_DIR`, and back up Postgres
+(see [Backup](backup.md)).
+
+## After changing the schema
+
+```bash
+npm run db:generate    # writes a new migration into drizzle/
+npm run db:migrate
+```

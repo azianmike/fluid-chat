@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    command: npm run dev
+    command: sh -c "npm run db:migrate && npm run dev"
     ports:
       - "3000:3000"
     environment:
@@ -9,8 +9,14 @@ services:
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: change-me-at-least-32-characters
       APP_URL: http://localhost:3000
+      REALTIME_INTERNAL_URL: http://realtime:3001
+      NEXT_PUBLIC_REALTIME_URL: http://localhost:3001
+      UPLOAD_DIR: /app/uploads
+      EXPORT_DIR: /app/exports
     volumes:
       - .:/app
+      - uploads:/app/uploads
+      - exports:/app/exports
       - /app/node_modules
     depends_on:
       - postgres
@@ -22,12 +28,15 @@ services:
     ports:
       - "3001:3001"
     environment:
+      DATABASE_URL: postgres://openchat:openchat@postgres:5432/openchat
       REDIS_URL: redis://redis:6379
       REALTIME_PORT: 3001
+      APP_URL: http://localhost:3000
     volumes:
       - .:/app
       - /app/node_modules
     depends_on:
+      - postgres
       - redis
 
   worker:
@@ -37,9 +46,12 @@ services:
       DATABASE_URL: postgres://openchat:openchat@postgres:5432/openchat
       REDIS_URL: redis://redis:6379
       APP_URL: http://localhost:3000
+      UPLOAD_DIR: /app/uploads
+      EXPORT_DIR: /app/exports
     volumes:
       - .:/app
-      - ./exports:/app/exports
+      - uploads:/app/uploads
+      - exports:/app/exports
       - /app/node_modules
     depends_on:
       - postgres
@@ -55,6 +67,10 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openchat"]
+      interval: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -76,3 +92,5 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  uploads:
+  exports:
