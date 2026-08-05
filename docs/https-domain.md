@@ -1,6 +1,6 @@
 # HTTPS and Domain Setup
 
-Put OpenChat behind a reverse proxy such as Caddy, Nginx, or Traefik.
+Put Fluid Chat behind a reverse proxy such as Caddy, Nginx, or Traefik.
 
 Required behavior:
 

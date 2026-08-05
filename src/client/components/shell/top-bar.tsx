@@ -24,7 +24,7 @@ export function TopBar() {
         >
           <Menu size={18} />
         </button>
-        <span className="brand">OpenChat</span>
+        <span className="brand">Fluid Chat</span>
       </div>
 
       <form

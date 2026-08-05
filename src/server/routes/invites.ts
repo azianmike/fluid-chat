@@ -105,7 +105,7 @@ export const inviteRoutes = defineRoutes({
       created.push({ ...publicInvite(invite), token, inviteUrl: inviteUrl(token) });
       await sendEmail({
         to: email,
-        subject: `Join ${workspace.name} on OpenChat`,
+        subject: `Join ${workspace.name} on Fluid Chat`,
         text: `${user.displayName} invited you to ${workspace.name}.\n\nJoin here: ${inviteUrl(token)}`
       });
     }
@@ -296,7 +296,7 @@ export const inviteRoutes = defineRoutes({
     if (invite.email) {
       await sendEmail({
         to: invite.email,
-        subject: "Your OpenChat invite",
+        subject: "Your Fluid Chat invite",
         text: `Join the workspace: ${inviteUrl(token)}`
       });
     }

@@ -462,7 +462,7 @@ export function searchEmoji(query: string, limit = 40) {
 }
 
 const FREQUENT_DEFAULTS = ["+1", "white_check_mark", "eyes", "tada", "heart", "joy", "rocket", "pray"];
-const FREQUENT_KEY = "openchat:frequent-emoji";
+const FREQUENT_KEY = "fluidchat:frequent-emoji";
 
 /** Most-used emoji, learned from what you actually pick, with sensible defaults. */
 export function frequentEmoji(limit = 12): string[] {

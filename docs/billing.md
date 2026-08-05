@@ -1,6 +1,6 @@
 # Billing and Usage
 
-OpenChat keeps hosted billing state on the workspace record:
+Fluid Chat keeps hosted billing state on the workspace record:
 
 ```text
 plan

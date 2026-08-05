@@ -47,7 +47,7 @@ function AppRoot() {
   if (state.status === "loading") {
     return (
       <div className="boot-screen">
-        <Spinner label="Loading OpenChat" />
+        <Spinner label="Loading Fluid Chat" />
       </div>
     );
   }
@@ -261,7 +261,7 @@ function useDesktopNotifications() {
     if (document.visibilityState === "visible") return;
     const relevant = ["mention", "dm", "thread_reply", "reminder", "keyword"].includes(latest.type);
     if (preference === "mentions" && !relevant) return;
-    new Notification("OpenChat", { body: latest.body ?? "New activity", tag: latest.id });
+    new Notification("Fluid Chat", { body: latest.body ?? "New activity", tag: latest.id });
   }, [latest, preference, quiet]);
 }
 

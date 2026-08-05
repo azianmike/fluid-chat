@@ -21,7 +21,7 @@ Docker Compose includes MinIO for S3-compatible storage:
 
 ```text
 S3_ENDPOINT=http://minio:9000
-S3_BUCKET=openchat
+S3_BUCKET=fluidchat
 S3_ACCESS_KEY=minioadmin
 S3_SECRET_KEY=minioadmin
 ```

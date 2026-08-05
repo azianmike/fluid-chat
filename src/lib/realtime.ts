@@ -4,7 +4,7 @@ import type { RealtimeEvent } from "@/shared/types";
 const redisUrl = process.env.REDIS_URL;
 let publisher: Redis | null = null;
 
-export const REALTIME_CHANNEL = "openchat:events";
+export const REALTIME_CHANNEL = "fluidchat:events";
 
 function client() {
   if (!redisUrl) return null;
@@ -42,7 +42,7 @@ export async function publish(room: RealtimeRoom, event: RealtimeEvent) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        ...(process.env.REALTIME_TOKEN ? { "x-openchat-token": process.env.REALTIME_TOKEN } : {})
+        ...(process.env.REALTIME_TOKEN ? { "x-fluidchat-token": process.env.REALTIME_TOKEN } : {})
       },
       body: payload,
       signal: AbortSignal.timeout(1500)

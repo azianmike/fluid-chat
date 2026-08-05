@@ -36,7 +36,7 @@ export function InviteAccept({ token }: { token: string }) {
     try {
       await api.invites.accept(token);
       setAccepted(true);
-      setMessage("You are in. Open OpenChat to start working.");
+      setMessage("You are in. Open Fluid Chat to start working.");
     } catch (error) {
       setMessage(errorText(error, "We could not accept this invitation."));
     }
@@ -57,7 +57,7 @@ export function InviteAccept({ token }: { token: string }) {
   return (
     <main className="auth-page">
       <section className="auth-hero">
-        <p className="eyebrow">OpenChat invitation</p>
+        <p className="eyebrow">Fluid Chat invitation</p>
         <h1>{workspaceName || "You have been invited"}</h1>
         <p className="lede">{message}</p>
       </section>
@@ -68,7 +68,7 @@ export function InviteAccept({ token }: { token: string }) {
               {accepted ? "Invitation accepted" : "Accept invitation"}
             </button>
             <a className="link-button" href="/">
-              Open OpenChat
+              Open Fluid Chat
             </a>
           </div>
         ) : (
@@ -131,7 +131,7 @@ export function ResetPassword({ token }: { token: string }) {
   return (
     <main className="auth-page">
       <section className="auth-hero">
-        <p className="eyebrow">OpenChat</p>
+        <p className="eyebrow">Fluid Chat</p>
         <h1>Choose a new password</h1>
         <p className="lede">Resetting your password signs you out everywhere else.</p>
       </section>
@@ -176,13 +176,13 @@ export function VerifyEmail({ token }: { token: string }) {
   return (
     <main className="auth-page">
       <section className="auth-hero">
-        <p className="eyebrow">OpenChat</p>
+        <p className="eyebrow">Fluid Chat</p>
         <h1>Email verification</h1>
         <p className="lede">{message}</p>
       </section>
       <section className="auth-panel">
         <a className="button primary" href="/">
-          Open OpenChat
+          Open Fluid Chat
         </a>
       </section>
     </main>

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "OpenChat",
+  title: "Fluid Chat",
   description: "Self-hosted team chat: channels, DMs, threads, search and files"
 };
 

@@ -1,15 +1,16 @@
-# PRD: Open-Source Self-Hosted Slack Alternative
+# PRD: Fluid Chat — a free, open source chat alternative to Slack
 
 ## 1. Product summary
 
 ### Product name
 
-Working name: **OpenChat**
-Final name TBD.
+**Fluid Chat**
+
+Positioning line: *a free, open source chat alternative to Slack.*
 
 ### Product concept
 
-A self-hostable, open-source team chat product with Slack-like workspaces, channels, DMs, threads, search, notifications, and admin controls.
+A free, open source, self-hostable team chat product with Slack-like workspaces, channels, DMs, threads, search, notifications, and admin controls.
 
 The business model is a hosted cloud version of the open-source product, positioned as a lower-cost alternative to Slack for small teams, startups, nonprofits, schools, agencies, and technical communities.
 
