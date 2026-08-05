@@ -3,8 +3,13 @@ import { db } from "@/db/client";
 import { channels, conversationMembers, conversations, workspaceMembers } from "@/db/schema";
 import type { Channel, Conversation, ConversationMember, WorkspaceMember } from "@/db/schema";
 import { HttpError } from "./http";
+import { assertWorkspaceInScope } from "./api-auth";
 
 export async function requireWorkspaceMember(workspaceId: string, userId: string) {
+  // API keys are pinned to one workspace; this is the choke point every route
+  // that touches workspace data already passes through.
+  assertWorkspaceInScope(workspaceId);
+
   const [member] = await db
     .select()
     .from(workspaceMembers)

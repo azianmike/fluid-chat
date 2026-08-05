@@ -36,6 +36,13 @@
       "when": 1785817407270,
       "tag": "0004_faithful_mandroid",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785904540725,
+      "tag": "0005_breezy_gambit",
+      "breakpoints": true
     }
   ]
 }

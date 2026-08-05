@@ -344,6 +344,37 @@ export const webhooks = pgTable("webhooks", {
   index("webhooks_conversation_idx").on(table.conversationId)
 ]);
 
+/**
+ * API keys are a second credential for the same route surface the UI uses: a key
+ * acts as a real workspace member (the admin who made it, or a dedicated bot
+ * user), so authorisation stays in one place instead of forking into a parallel
+ * "machine" permission model.
+ */
+export const apiKeys = pgTable("api_keys", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** First few characters of the secret, kept for display: `fluid_sk_A1b2…`. */
+  prefix: text("prefix").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  /** The member requests are attributed to. Bot keys own a bot user. */
+  actorUserId: uuid("actor_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  actorIsBot: boolean("actor_is_bot").notNull().default(false),
+  createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
+  scopes: jsonb("scopes").$type<string[]>().notNull(),
+  rateLimitPerMinute: integer("rate_limit_per_minute").notNull().default(120),
+  messageLimitPerMinute: integer("message_limit_per_minute").notNull().default(60),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  lastUsedIp: text("last_used_ip"),
+  requestCount: integer("request_count").notNull().default(0),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedByUserId: uuid("revoked_by_user_id").references(() => users.id),
+  ...timestamps
+}, (table) => [
+  index("api_keys_workspace_idx").on(table.workspaceId, table.createdAt)
+]);
+
 export const savedItems = pgTable("saved_items", {
   id: uuid("id").defaultRandom().primaryKey(),
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
@@ -541,4 +572,5 @@ export type CustomEmoji = typeof customEmoji.$inferSelect;
 export type SidebarSection = typeof sidebarSections.$inferSelect;
 export type UserGroup = typeof userGroups.$inferSelect;
 export type Webhook = typeof webhooks.$inferSelect;
+export type ApiKey = typeof apiKeys.$inferSelect;
 export type ThreadSubscription = typeof threadSubscriptions.$inferSelect;
