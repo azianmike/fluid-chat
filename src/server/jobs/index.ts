@@ -179,7 +179,7 @@ export async function sendNotificationEmails() {
       await sendEmail({
         to: row.user.email,
         subject: subjectFor(row.notification.type),
-        text: `${row.notification.body ?? "You have a new notification."}\n\nOpen OpenChat: ${appUrl()}`
+        text: `${row.notification.body ?? "You have a new notification."}\n\nOpen Fluid Chat: ${appUrl()}`
       });
     }
     await db.update(notifications).set({ emailSentAt: new Date() }).where(eq(notifications.id, row.notification.id));
@@ -189,15 +189,15 @@ export async function sendNotificationEmails() {
 function subjectFor(type: string) {
   switch (type) {
     case "mention":
-      return "You were mentioned on OpenChat";
+      return "You were mentioned on Fluid Chat";
     case "dm":
-      return "New direct message on OpenChat";
+      return "New direct message on Fluid Chat";
     case "thread_reply":
       return "New reply in a thread you follow";
     case "reminder":
-      return "Your OpenChat reminder";
+      return "Your Fluid Chat reminder";
     default:
-      return "New OpenChat notification";
+      return "New Fluid Chat notification";
   }
 }
 
@@ -278,7 +278,7 @@ async function fetchPreview(rawUrl: string) {
     const response = await fetch(url, {
       redirect: "follow",
       signal: AbortSignal.timeout(5000),
-      headers: { "user-agent": "OpenChat-LinkPreview/1.0" }
+      headers: { "user-agent": "Fluid Chat-LinkPreview/1.0" }
     });
     if (!response.ok) return null;
     const contentType = response.headers.get("content-type") ?? "";
@@ -394,7 +394,7 @@ export async function runExports() {
       await writeFile(
         path.join(dir, "README.txt"),
         [
-          "OpenChat workspace export",
+          "Fluid Chat workspace export",
           `Generated: ${new Date().toISOString()}`,
           "",
           "users.csv           workspace members",

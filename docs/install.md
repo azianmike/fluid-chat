@@ -33,8 +33,8 @@ npm run worker                # third terminal: scheduled sends, reminders, expo
 Create the database first if you need to:
 
 ```bash
-createuser openchat --createdb
-createdb -O openchat openchat
+createuser fluidchat --createdb
+createdb -O fluidchat fluidchat
 ```
 
 ## Production

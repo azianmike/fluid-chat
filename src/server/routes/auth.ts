@@ -99,7 +99,7 @@ export const authRoutes = defineRoutes({
     });
     await sendEmail({
       to: user.email,
-      subject: "Verify your OpenChat email",
+      subject: "Verify your Fluid Chat email",
       text: `Verify your email: ${appUrl()}/verify-email/${verificationToken}`
     });
 
@@ -143,7 +143,7 @@ export const authRoutes = defineRoutes({
     });
     await sendEmail({
       to: user.email,
-      subject: "Reset your OpenChat password",
+      subject: "Reset your Fluid Chat password",
       text: `Reset your password: ${appUrl()}/reset-password/${token}`
     });
     // The token is echoed only when email delivery is not configured, so that
@@ -219,7 +219,7 @@ export const authRoutes = defineRoutes({
     });
     await sendEmail({
       to: user.email,
-      subject: "Verify your OpenChat email",
+      subject: "Verify your Fluid Chat email",
       text: `Verify your email: ${appUrl()}/verify-email/${token}`
     });
     return { ok: true };

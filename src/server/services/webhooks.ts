@@ -31,7 +31,7 @@ export async function createWebhook(options: {
     const [bot] = await tx
       .insert(users)
       .values({
-        email: `${handle}@bots.openchat.invalid`,
+        email: `${handle}@bots.fluidchat.invalid`,
         displayName: options.name,
         handle,
         isBot: true,

@@ -1,7 +1,9 @@
-# OpenChat
+# Fluid Chat
 
-A self-hostable Slack alternative: channels, direct messages, threads, reactions, files,
-search, presence and a realtime UI — built on Next.js, Postgres and a small Socket.IO server.
+**A free, open source chat alternative to Slack.**
+
+Channels, direct messages, threads, reactions, files, search, presence and a realtime UI —
+built on Next.js, Postgres and a small Socket.IO server. Self-host it for free and own your data.
 
 ![stack](https://img.shields.io/badge/stack-Next.js%2015%20·%20Postgres%20·%20Drizzle%20·%20Socket.IO-informational)
 

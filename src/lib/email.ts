@@ -25,7 +25,7 @@ export async function sendEmail(input: EmailInput) {
   });
 
   await transporter.sendMail({
-    from: process.env.SMTP_FROM ?? "OpenChat <noreply@example.com>",
+    from: process.env.SMTP_FROM ?? "Fluid Chat <noreply@example.com>",
     ...input
   });
 

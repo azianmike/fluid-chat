@@ -5,6 +5,6 @@ export default defineConfig({
   schema: "./src/db/schema.ts",
   out: "./drizzle",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "postgres://openchat:openchat@localhost:5432/openchat"
+    url: process.env.DATABASE_URL ?? "postgres://fluidchat:fluidchat@localhost:5432/fluidchat"
   }
 });

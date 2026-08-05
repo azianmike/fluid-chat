@@ -1,6 +1,6 @@
 # SMTP Configuration
 
-OpenChat stores invite and reset tokens immediately. Wire these variables to an SMTP provider before enabling real outbound mail:
+Fluid Chat stores invite and reset tokens immediately. Wire these variables to an SMTP provider before enabling real outbound mail:
 
 ```text
 SMTP_HOST

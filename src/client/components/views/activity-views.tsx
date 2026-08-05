@@ -115,7 +115,7 @@ export function ActivityView() {
                 <Avatar user={actor} size={34} />
                 <div>
                   <div className="activity-meta">
-                    <strong>{actor?.displayName ?? "OpenChat"}</strong>
+                    <strong>{actor?.displayName ?? "Fluid Chat"}</strong>
                     <span>{describeNotification(notification.type)}</span>
                     <span className="muted">{label(notification.conversationId)}</span>
                     <time>{formatRelative(notification.createdAt)}</time>

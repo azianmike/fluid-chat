@@ -17,7 +17,7 @@ async function runJob(job: (typeof jobs)[number]) {
 }
 
 async function main() {
-  console.log(`OpenChat worker started with ${jobs.length} jobs`);
+  console.log(`Fluid Chat worker started with ${jobs.length} jobs`);
   await Promise.all(jobs.map(runJob));
 
   for (const job of jobs) {

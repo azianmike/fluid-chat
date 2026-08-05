@@ -5,7 +5,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgres://openchat:openchat@postgres:5432/openchat
+      DATABASE_URL: postgres://fluidchat:fluidchat@postgres:5432/fluidchat
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: change-me-at-least-32-characters
       APP_URL: http://localhost:3000
@@ -28,7 +28,7 @@ services:
     ports:
       - "3001:3001"
     environment:
-      DATABASE_URL: postgres://openchat:openchat@postgres:5432/openchat
+      DATABASE_URL: postgres://fluidchat:fluidchat@postgres:5432/fluidchat
       REDIS_URL: redis://redis:6379
       REALTIME_PORT: 3001
       APP_URL: http://localhost:3000
@@ -43,7 +43,7 @@ services:
     build: .
     command: npm run worker
     environment:
-      DATABASE_URL: postgres://openchat:openchat@postgres:5432/openchat
+      DATABASE_URL: postgres://fluidchat:fluidchat@postgres:5432/fluidchat
       REDIS_URL: redis://redis:6379
       APP_URL: http://localhost:3000
       UPLOAD_DIR: /app/uploads
@@ -60,15 +60,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: openchat
-      POSTGRES_PASSWORD: openchat
-      POSTGRES_DB: openchat
+      POSTGRES_USER: fluidchat
+      POSTGRES_PASSWORD: fluidchat
+      POSTGRES_DB: fluidchat
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openchat"]
+      test: ["CMD-SHELL", "pg_isready -U fluidchat"]
       interval: 5s
       retries: 10
 

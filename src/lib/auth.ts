@@ -5,7 +5,7 @@ import { sessions, users } from "@/db/schema";
 import { addDays, newToken, tokenHash } from "./security";
 import { HttpError } from "./http";
 
-const cookieName = "openchat_session";
+const cookieName = "fluidchat_session";
 const SESSION_DAYS = 30;
 
 export async function createSession(userId: string, meta?: { userAgent?: string | null; ipAddress?: string | null }) {

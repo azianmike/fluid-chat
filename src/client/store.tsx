@@ -663,7 +663,7 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
   const selectWorkspace = useCallback(
     async (workspaceId: string) => {
       dispatch({ type: "workspace", workspaceId });
-      window.localStorage.setItem("openchat:workspace", workspaceId);
+      window.localStorage.setItem("fluidchat:workspace", workspaceId);
       try {
         const bootstrap = await refreshBootstrap(workspaceId);
         const first =
@@ -825,7 +825,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         dispatch({ type: "session", session: user, memberships: workspaces });
         if (!user || workspaces.length === 0) return;
-        const stored = window.localStorage.getItem("openchat:workspace");
+        const stored = window.localStorage.getItem("fluidchat:workspace");
         const target = workspaces.find((entry) => entry.workspace.id === stored) ?? workspaces[0];
         await actions.selectWorkspace(target.workspace.id);
       })
@@ -1033,7 +1033,7 @@ export function conversationTitle(
   directory: Map<string, PublicUser>,
   currentUserId?: string
 ) {
-  if (!conversation) return "OpenChat";
+  if (!conversation) return "Fluid Chat";
   if (conversation.channel) return conversation.channel.name;
   if (conversation.name) return conversation.name;
   const others = conversation.memberIds.filter((id) => id !== currentUserId);

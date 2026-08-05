@@ -104,7 +104,7 @@ const httpServer = http.createServer((request, response) => {
   // events here over the private network; a shared token guards it when set.
   if (request.url === "/publish" && request.method === "POST") {
     const token = process.env.REALTIME_TOKEN;
-    if (token && request.headers["x-openchat-token"] !== token) {
+    if (token && request.headers["x-fluidchat-token"] !== token) {
       response.writeHead(403);
       response.end();
       return;
@@ -235,6 +235,6 @@ if (subClient) {
 
 httpServer.listen(port, () => {
   console.log(
-    `OpenChat realtime server listening on :${port} (${redisUrl ? "redis fan-out" : "direct publish, no redis"})`
+    `Fluid Chat realtime server listening on :${port} (${redisUrl ? "redis fan-out" : "direct publish, no redis"})`
   );
 });
