@@ -140,7 +140,13 @@ export const userRoutes = defineRoutes({
       .select({ workspaceId: workspaceMembers.workspaceId })
       .from(workspaceMembers)
       .where(and(eq(workspaceMembers.userId, viewer.id), eq(workspaceMembers.status, "active")));
-    const viewerSet = new Set(viewerWorkspaces.map((row) => row.workspaceId));
+    // A key sees only its own workspace, even where its actor belongs to more.
+    const keyWorkspaceId = ctx.apiKey?.workspaceId;
+    const viewerSet = new Set(
+      viewerWorkspaces
+        .map((row) => row.workspaceId)
+        .filter((workspaceId) => !keyWorkspaceId || workspaceId === keyWorkspaceId)
+    );
     const overlap = shared.filter((row) => viewerSet.has(row.workspaceId));
     if (overlap.length === 0 && viewer.id !== target.id) {
       throw new HttpError(403, "Profile not available", "profile_forbidden");

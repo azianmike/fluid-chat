@@ -1,13 +1,20 @@
 import { and, count, eq, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
-import { workspaceInvites, workspaceMembers, workspaces } from "@/db/schema";
+import { users, workspaceInvites, workspaceMembers, workspaces } from "@/db/schema";
 import { HttpError } from "./http";
 
 export async function workspaceUsage(workspaceId: string) {
+  // Bot identities behind API keys hold memberships so permissions work, but a
+  // seat is a person: they are not billed.
   const [activeMembers] = await db
     .select({ value: count() })
     .from(workspaceMembers)
-    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.status, "active")));
+    .innerJoin(users, eq(users.id, workspaceMembers.userId))
+    .where(and(
+      eq(workspaceMembers.workspaceId, workspaceId),
+      eq(workspaceMembers.status, "active"),
+      eq(users.isBot, false)
+    ));
 
   const [pendingInvites] = await db
     .select({ value: count() })

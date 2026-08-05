@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Hash, Lock, RefreshCw, Trash2 } from "lucide-react";
 import type { ChannelSummary, CustomEmojiDto, PublicUser } from "@/shared/types";
 import { api } from "../../api";
+import type { ApiKeyDto } from "../../api";
 import { formatRelative } from "../../format";
 import { useApp } from "../../store";
 import { Avatar, Modal, Spinner } from "../ui/primitives";
 
-type Tab = "overview" | "members" | "invitations" | "channels" | "emoji" | "settings" | "audit" | "export";
+type Tab = "overview" | "members" | "invitations" | "channels" | "emoji" | "api" | "settings" | "audit" | "export";
 
 type MemberRow = { memberId: string; role: string; status: string; user: PublicUser };
 type InviteRow = {
@@ -39,6 +40,7 @@ export function AdminConsole({ onClose }: { onClose: () => void }) {
             ["invitations", "Invitations"],
             ["channels", "Channels"],
             ["emoji", "Emoji"],
+            ["api", "API keys"],
             ["settings", "Settings"],
             ["audit", "Audit log"],
             ["export", "Export"]
@@ -57,6 +59,7 @@ export function AdminConsole({ onClose }: { onClose: () => void }) {
           {tab === "invitations" ? <Invitations workspaceId={workspaceId} /> : null}
           {tab === "channels" ? <Channels workspaceId={workspaceId} /> : null}
           {tab === "emoji" ? <Emoji workspaceId={workspaceId} /> : null}
+          {tab === "api" ? <ApiKeys workspaceId={workspaceId} /> : null}
           {tab === "settings" ? <Settings workspaceId={workspaceId} isOwner={isOwner} /> : null}
           {tab === "audit" ? <AuditLog workspaceId={workspaceId} /> : null}
           {tab === "export" ? <Exports workspaceId={workspaceId} isOwner={isOwner} /> : null}
@@ -385,6 +388,254 @@ function Emoji({ workspaceId }: { workspaceId: string }) {
         ))}
         {emoji?.length === 0 ? <p className="muted">No custom emoji yet.</p> : null}
       </div>
+    </div>
+  );
+}
+
+const DEFAULT_SCOPES = ["messages:read", "messages:write", "channels:read", "conversations:read"];
+
+function ApiKeys({ workspaceId }: { workspaceId: string }) {
+  const { actions } = useApp();
+  const [keys, setKeys] = useState<ApiKeyDto[] | null>(null);
+  const [catalogue, setCatalogue] = useState<Array<{ scope: string; summary: string }>>([]);
+  const [secret, setSecret] = useState<{ token: string; name: string } | null>(null);
+  const [form, setForm] = useState({
+    name: "",
+    identity: "bot" as "bot" | "self",
+    botRole: "member" as "member" | "admin",
+    scopes: DEFAULT_SCOPES,
+    rateLimitPerMinute: 120,
+    messageLimitPerMinute: 60,
+    expiresInDays: ""
+  });
+
+  const load = useCallback(() => {
+    api.apiKeys
+      .list(workspaceId)
+      .then(({ apiKeys }) => setKeys(apiKeys))
+      .catch(() => setKeys([]));
+  }, [workspaceId]);
+
+  useEffect(load, [load]);
+  useEffect(() => {
+    api.apiKeys
+      .scopes()
+      .then(({ scopes }) => setCatalogue(scopes))
+      .catch(() => setCatalogue([]));
+  }, []);
+
+  const toggleScope = (scope: string) =>
+    setForm((current) => ({
+      ...current,
+      scopes: current.scopes.includes(scope)
+        ? current.scopes.filter((entry) => entry !== scope)
+        : [...current.scopes, scope]
+    }));
+
+  return (
+    <div className="stack-form">
+      <p className="muted">
+        An API key calls the same endpoints this app does, so anything a person can do here, a script or an agent can
+        automate. Keys are pinned to this workspace, limited to the scopes you grant and rate limited per key. The full
+        route list lives at <code>/api/meta/routes</code>.
+      </p>
+
+      {secret ? (
+        <div className="api-key-reveal">
+          <strong>Copy “{secret.name}” now — this is the only time it is shown.</strong>
+          <code>{secret.token}</code>
+          <div className="admin-row-actions">
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => {
+                void navigator.clipboard.writeText(secret.token);
+                actions.toast("API key copied to clipboard", "success");
+              }}
+            >
+              Copy key
+            </button>
+            <button type="button" className="button ghost" onClick={() => setSecret(null)}>
+              Done
+            </button>
+          </div>
+          <small>
+            Try it: <code>curl -H &quot;Authorization: Bearer {secret.token.slice(0, 14)}…&quot; {location.origin}/api/auth/me</code>
+          </small>
+        </div>
+      ) : null}
+
+      <form
+        className="stack-form"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (form.scopes.length === 0) {
+            actions.toast("Grant at least one scope", "error");
+            return;
+          }
+          try {
+            const { apiKey, token } = await api.apiKeys.create(workspaceId, {
+              name: form.name.trim(),
+              scopes: form.scopes,
+              identity: form.identity,
+              botRole: form.botRole,
+              rateLimitPerMinute: form.rateLimitPerMinute,
+              messageLimitPerMinute: form.messageLimitPerMinute,
+              expiresInDays: form.expiresInDays === "" ? null : Number(form.expiresInDays)
+            });
+            setSecret({ token, name: apiKey.name });
+            setForm({ ...form, name: "" });
+            load();
+          } catch (error) {
+            actions.fail(error);
+          }
+        }}
+      >
+        <label className="field">
+          Key name
+          <input
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            placeholder="Release bot"
+            required
+          />
+        </label>
+
+        <div className="api-key-row">
+          <label className="field">
+            Acts as
+            <select
+              value={form.identity}
+              onChange={(event) => setForm({ ...form, identity: event.target.value as "bot" | "self" })}
+            >
+              <option value="bot">Its own bot identity</option>
+              <option value="self">Me</option>
+            </select>
+          </label>
+          {form.identity === "bot" ? (
+            <label className="field">
+              Bot role
+              <select
+                value={form.botRole}
+                onChange={(event) => setForm({ ...form, botRole: event.target.value as "member" | "admin" })}
+              >
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            </label>
+          ) : null}
+          <label className="field">
+            Requests / minute
+            <input
+              type="number"
+              min={1}
+              max={6000}
+              value={form.rateLimitPerMinute}
+              onChange={(event) => setForm({ ...form, rateLimitPerMinute: Number(event.target.value) })}
+            />
+          </label>
+          <label className="field">
+            Messages / minute
+            <input
+              type="number"
+              min={1}
+              max={6000}
+              value={form.messageLimitPerMinute}
+              onChange={(event) => setForm({ ...form, messageLimitPerMinute: Number(event.target.value) })}
+            />
+          </label>
+          <label className="field">
+            Expires in days
+            <input
+              type="number"
+              min={1}
+              value={form.expiresInDays}
+              placeholder="never"
+              onChange={(event) => setForm({ ...form, expiresInDays: event.target.value })}
+            />
+          </label>
+        </div>
+
+        <fieldset className="scope-grid">
+          <legend>Scopes</legend>
+          {catalogue.map((entry) => (
+            <label key={entry.scope} className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={form.scopes.includes(entry.scope)}
+                onChange={() => toggleScope(entry.scope)}
+              />
+              <span>
+                <strong>{entry.scope}</strong>
+                <small>{entry.summary}</small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+
+        <button type="submit" className="button primary">
+          Create API key
+        </button>
+      </form>
+
+      {!keys ? (
+        <Spinner label="Loading API keys" />
+      ) : (
+        <div className="admin-list">
+          {keys.length === 0 ? <p className="muted">No API keys yet.</p> : null}
+          {keys.map((key) => (
+            <div key={key.id} className="admin-row">
+              <div className="admin-row-main">
+                <span>
+                  <strong>
+                    {key.name} <code>{key.prefix}…</code>
+                  </strong>
+                  <small>
+                    as {key.actor.displayName}
+                    {key.actor.isBot ? " (bot)" : ""} · {key.scopes.length} scopes · {key.rateLimitPerMinute}/min ·{" "}
+                    {key.requestCount} calls ·{" "}
+                    {key.lastUsedAt ? `last used ${formatRelative(key.lastUsedAt)}` : "never used"}
+                    {key.expiresAt ? ` · expires ${formatRelative(key.expiresAt)}` : ""}
+                  </small>
+                </span>
+              </div>
+              <div className="admin-row-actions">
+                <button
+                  type="button"
+                  className="button ghost"
+                  onClick={async () => {
+                    if (!window.confirm(`Rotate “${key.name}”? The current secret stops working immediately.`)) return;
+                    try {
+                      const { token } = await api.apiKeys.rotate(key.id);
+                      setSecret({ token, name: key.name });
+                      load();
+                    } catch (error) {
+                      actions.fail(error);
+                    }
+                  }}
+                >
+                  <RefreshCw size={13} /> Rotate
+                </button>
+                <button
+                  type="button"
+                  className="button ghost"
+                  onClick={async () => {
+                    if (!window.confirm(`Revoke “${key.name}”? Anything using it stops working.`)) return;
+                    try {
+                      await api.apiKeys.revoke(key.id);
+                      load();
+                    } catch (error) {
+                      actions.fail(error);
+                    }
+                  }}
+                >
+                  Revoke
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
