@@ -19,6 +19,34 @@ import type {
   WorkspaceSummary
 } from "@/shared/types";
 
+export type ApiKeyDto = {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  workspaceId: string;
+  actor: { id: string; displayName: string; handle: string | null; isBot: boolean };
+  rateLimitPerMinute: number;
+  messageLimitPerMinute: number;
+  requestCount: number;
+  lastUsedAt: string | null;
+  lastUsedIp: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdByUserId: string;
+  createdAt: string;
+};
+
+export type CreateApiKeyInput = {
+  name: string;
+  scopes: string[];
+  identity?: "bot" | "self";
+  botRole?: "member" | "admin";
+  rateLimitPerMinute?: number;
+  messageLimitPerMinute?: number;
+  expiresInDays?: number | null;
+};
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -148,6 +176,20 @@ export const api = {
     updateSection: (sectionId: string, input: Partial<SidebarSectionDto>) =>
       patch<{ section: SidebarSectionDto }>(`/sections/${sectionId}`, input),
     deleteSection: (sectionId: string) => del<{ ok: true }>(`/sections/${sectionId}`)
+  },
+
+  apiKeys: {
+    scopes: () => get<{ scopes: Array<{ scope: string; summary: string }> }>("/meta/scopes"),
+    list: (workspaceId: string, includeRevoked = false) =>
+      get<{ apiKeys: ApiKeyDto[] }>(
+        `/workspaces/${workspaceId}/api-keys${includeRevoked ? "?includeRevoked=true" : ""}`
+      ),
+    create: (workspaceId: string, input: CreateApiKeyInput) =>
+      post<{ apiKey: ApiKeyDto; token: string }>(`/workspaces/${workspaceId}/api-keys`, input),
+    update: (keyId: string, input: Partial<CreateApiKeyInput>) =>
+      patch<{ apiKey: ApiKeyDto }>(`/api-keys/${keyId}`, input),
+    rotate: (keyId: string) => post<{ apiKey: ApiKeyDto; token: string }>(`/api-keys/${keyId}/rotate`),
+    revoke: (keyId: string) => del<{ ok: true }>(`/api-keys/${keyId}`)
   },
 
   invites: {

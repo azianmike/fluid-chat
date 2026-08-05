@@ -69,6 +69,7 @@ docker compose up
 - Guests are scoped to the channels they are added to and cannot browse, join, invite or integrate
 - Email invitations and reusable invite links with expiry and use limits
 - Workspace settings, channel management, custom emoji, user groups, audit log
+- API keys with scopes, per-key rate limits, rotation, expiry and audited creation
 - Per-channel controls: posting policy, default (auto-join) channels, retention, private conversion, integrations
 - Data export (JSONL + CSV + file manifest), message retention policies, per-workspace read-only mode
 
@@ -76,6 +77,27 @@ docker compose up
 - Light and dark themes (or match the OS), comfortable/compact density, 12h/24h clocks
 - Enter-to-send toggle, notification levels, highlight keywords, desktop notifications, sounds, session management
 - Notification schedule (quiet hours) evaluated in your own timezone, honored by sounds, desktop alerts and email
+
+## Everything is scriptable
+
+The web client has no private endpoints. It calls `/api`, and so can you — with an API key an
+admin creates in **Workspace settings → API keys**:
+
+```bash
+curl -X POST "$APP_URL/api/conversations/$CONVERSATION_ID/messages" \
+  -H "Authorization: Bearer $FLUID_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"bodyText":"Deploy *v1.4.2* finished :rocket:"}'
+```
+
+Keys act as a bot identity of their own (or as you), are pinned to one workspace, hold explicit
+scopes like `messages:write`, and carry their own rate limits — so an integration can post, an
+agent can read and reply, and neither can quietly become an admin. A route that is not classified
+into a scope fails the startup check, which is what keeps the API complete as features land.
+
+Agents can discover the surface at runtime: `GET /api/meta/routes` lists every endpoint with the
+scope it needs, and `GET /api/meta/openapi.json` returns an OpenAPI 3.1 document generated from the
+same table the server enforces. Details in [API keys](docs/api-keys.md).
 
 ## Deliberately not built
 
@@ -141,7 +163,7 @@ npm run db:migrate  # apply migrations
 
 - [Install](docs/install.md)
 - [Architecture](docs/architecture.md)
-- [API reference](docs/api.md)
+- [API reference](docs/api.md) · [API keys](docs/api-keys.md)
 - [Environment variables](docs/env.md)
 - [Upgrade](docs/upgrade.md) · [Backup](docs/backup.md) · [Restore](docs/restore.md)
 - [SMTP](docs/smtp.md) · [S3 and MinIO](docs/s3-minio.md) · [HTTPS and domains](docs/https-domain.md)
