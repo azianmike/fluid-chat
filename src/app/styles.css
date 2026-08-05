@@ -2769,6 +2769,66 @@ textarea:focus {
   font-size: 12px;
 }
 
+/* API keys */
+
+.api-key-reveal {
+  display: grid;
+  gap: 10px;
+  padding: var(--space-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.api-key-reveal code {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.api-key-reveal small {
+  color: var(--text-muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.api-key-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.scope-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px 12px;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.scope-grid legend {
+  padding: 0 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scope-grid .checkbox-field strong {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.admin-row-main code {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* =========================================================================
    Emoji picker
    ========================================================================= */

@@ -20,11 +20,26 @@ authorizes room membership and relays events published by the app or worker.
   └── handleApiRequest()                     src/server/index.ts
         ├── enforceCsrf / enforceRateLimit   src/lib/guards.ts
         ├── matchRoute()                     src/server/router.ts
+        ├── API key path (Authorization: Bearer …)
+        │     ├── resolveApiKey()            src/lib/api-auth.ts
+        │     ├── assertRouteAllowed()       scope for this route spec
+        │     └── enforceApiKeyRateLimit()   per-key budgets → X-RateLimit-* headers
         └── handler(ctx)                     src/server/routes/*.ts
-              ├── ctx.user()                 session cookie → users row
+              ├── ctx.user()                 session cookie or API key actor → users row
               ├── permission helpers         src/lib/permissions.ts
               └── services                   src/server/services/*.ts
 ```
+
+An API key is a second credential for the same routes, not a second API. It resolves to a real
+workspace member — a bot identity, or the admin who created it — which `ctx.user()` returns, so
+handlers never branch on how the caller authenticated. Two extra invariants ride along the request
+in an `AsyncLocalStorage` context: the key's scopes (checked once, against the route spec) and its
+workspace (checked inside `requireWorkspaceMember`, which every workspace-scoped query already
+passes through).
+
+`src/lib/api-scopes.ts` maps every route spec to a scope, and `assertRoutesAreClassified` throws at
+startup if a route is missing or stale. Adding an endpoint therefore forces a decision about who
+may automate it.
 
 Routes are declared as a map:
 
@@ -116,5 +131,7 @@ than one worker can run at a time.
 1. Add columns or tables to `src/db/schema.ts`, then `npm run db:generate && npm run db:migrate`.
 2. Put the logic in a service under `src/server/services/` so jobs and routes can share it.
 3. Add one line to the relevant route module.
-4. Extend the DTO in `src/shared/types.ts` and the client method in `src/client/api.ts`.
-5. Render it — components read from the store and never fetch rows directly.
+4. Add the route to `ROUTE_ACCESS` in `src/lib/api-scopes.ts` — the server refuses to start
+   otherwise. The new endpoint is then automatable with an API key on the same day it ships.
+5. Extend the DTO in `src/shared/types.ts` and the client method in `src/client/api.ts`.
+6. Render it — components read from the store and never fetch rows directly.

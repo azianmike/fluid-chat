@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { HttpError } from "@/lib/http";
 import { currentUser, requireUser } from "@/lib/auth";
+import { currentApiKey } from "@/lib/api-auth";
 import type { User } from "@/db/schema";
 
 /**
@@ -72,15 +73,27 @@ export class Context {
     return schema.parse(this.cachedBody);
   }
 
+  /**
+   * The acting member, whether that is a browser session or an API key. Routes
+   * never need to know which, so every feature is scriptable the day it ships.
+   */
   async user(): Promise<User> {
-    if (this.cachedUser === undefined) this.cachedUser = await currentUser();
-    if (!this.cachedUser) return requireUser();
-    return this.cachedUser;
+    const resolved = await this.optionalUser();
+    if (!resolved) return requireUser();
+    return resolved;
   }
 
   async optionalUser(): Promise<User | null> {
-    if (this.cachedUser === undefined) this.cachedUser = await currentUser();
+    if (this.cachedUser === undefined) {
+      const auth = currentApiKey();
+      this.cachedUser = auth ? auth.actor : await currentUser();
+    }
     return this.cachedUser;
+  }
+
+  /** Set when an API key made the request; null for browser sessions. */
+  get apiKey() {
+    return currentApiKey();
   }
 }
 
