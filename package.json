@@ -26,6 +26,7 @@
     "nodemailer": "^8.0.7",
     "pg": "^8.13.1",
     "postcss": "^8.5.10",
+    "posthog-js": "^1.413.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "socket.io": "^4.8.1",

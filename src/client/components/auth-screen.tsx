@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { api, ApiError } from "../api";
+import { identifyUser, track } from "../analytics";
 import { useApp } from "../store";
 
 export function AuthScreen() {
@@ -34,6 +35,9 @@ export function AuthScreen() {
           ? await api.auth.signup({ email, password, displayName })
           : await api.auth.login(email, password);
       actions.setSession(result.user, result.workspaces);
+      // Identify before capturing so the conversion lands on the person, not the anonymous id.
+      identifyUser(result.user);
+      track(mode === "signup" ? "signed_up" : "signed_in", { workspace_count: result.workspaces.length });
       if (result.workspaces[0]) await actions.selectWorkspace(result.workspaces[0].workspace.id);
     } catch (error) {
       setNotice(error instanceof ApiError ? error.message : "Something went wrong");
@@ -143,6 +147,7 @@ export function WorkspaceSetupScreen() {
             setBusy(true);
             try {
               const { workspace } = await api.workspaces.create(name);
+              track("workspace_created", {});
               const { user, workspaces } = await api.auth.me();
               actions.setSession(user, workspaces);
               await actions.selectWorkspace(workspace.id);

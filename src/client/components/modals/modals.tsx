@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, Hash, Lock } from "lucide-react";
 import { api } from "../../api";
+import { track } from "../../analytics";
 import { EMOJI_CATEGORIES } from "../../emoji";
 import { conversationTitle, useApp, useDirectory } from "../../store";
 import { Avatar, Modal } from "../ui/primitives";
@@ -41,6 +42,7 @@ export function InviteModal({ onClose }: { onClose: () => void }) {
           if (list.length === 0) return;
           try {
             const { invites, skipped } = await api.invites.send(state.workspaceId, list, role);
+            track("invites_sent", { count: invites.length, skipped_count: skipped.length, role });
             setSent(invites.map((invite) => invite.inviteUrl));
             setEmails("");
             actions.toast(
@@ -109,6 +111,7 @@ export function InviteModal({ onClose }: { onClose: () => void }) {
               if (!state.workspaceId) return;
               try {
                 const { inviteUrl } = await api.invites.createLink(state.workspaceId, { expiresInDays: 30 });
+                track("invite_link_created", {});
                 setInviteLink(inviteUrl);
               } catch (error) {
                 actions.fail(error);
@@ -148,6 +151,7 @@ export function NewChannelModal({ onClose }: { onClose: () => void }) {
               visibility,
               description: description || undefined
             });
+            track("channel_created", { visibility, has_description: description.trim().length > 0 });
             await actions.refreshBootstrap();
             await actions.openConversation(conversationId);
             onClose();
@@ -227,6 +231,7 @@ export function NewDmModal({ onClose }: { onClose: () => void }) {
             if (!state.workspaceId) return;
             try {
               const { conversation } = await api.conversations.openDm(state.workspaceId, selected);
+              track("dm_started", { participant_count: selected.length });
               await actions.refreshBootstrap();
               await actions.openConversation(conversation.id);
               onClose();
@@ -803,6 +808,7 @@ export function ScheduleModal({
               sendAt: new Date(when).toISOString(),
               parentMessageId
             });
+            track("message_scheduled", {});
             actions.toast("Message scheduled", "success");
             onClose();
           } catch (error) {
@@ -905,6 +911,7 @@ export function CreateWorkspaceModal({ onClose }: { onClose: () => void }) {
           event.preventDefault();
           try {
             const { workspace } = await api.workspaces.create(name);
+            track("workspace_created", {});
             const { user, workspaces } = await api.auth.me();
             actions.setSession(user, workspaces);
             await actions.selectWorkspace(workspace.id);
