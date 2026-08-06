@@ -14,6 +14,12 @@
  *
  * Everything here degrades to a no-op when NEXT_PUBLIC_POSTHOG_KEY is unset, which is the
  * case for every self-hosted install that has not opted in.
+ *
+ * The second rule is that an event has to answer a question. Navigation and reactions are
+ * deliberately not tracked: in a chat app they fire constantly and only ever confirm that
+ * chat is being used. Thread engagement is already readable from `message_sent`'s
+ * `is_thread_reply`, and the channel/DM split from its `conversation_kind`, without paying
+ * for an event per click.
  */
 
 import posthog from "posthog-js";
@@ -33,10 +39,6 @@ type Events = {
     body_length: number;
   };
   slash_command_used: { command: string };
-  reaction_added: { emoji: string };
-  reaction_removed: { emoji: string };
-  conversation_opened: { conversation_kind: ConversationKind };
-  thread_opened: Record<string, never>;
   channel_created: { visibility: "public" | "private"; has_description: boolean };
   dm_started: { participant_count: number };
   workspace_created: Record<string, never>;

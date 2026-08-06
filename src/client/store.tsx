@@ -558,11 +558,6 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
       dispatch({ type: "view", view: { kind: "conversation", conversationId } });
       dispatch({ type: "right-panel", panel: null });
       dispatch({ type: "sidebar", open: false });
-      track("conversation_opened", {
-        conversation_kind: conversationKind(
-          stateRef.current.bootstrap?.conversations.find((entry) => entry.id === conversationId)
-        )
-      });
       await loadMessages(conversationId);
     },
     [dispatch, loadMessages]
@@ -574,7 +569,6 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
       try {
         const { messages } = await api.messages.thread(messageId);
         dispatch({ type: "thread", rootId: messageId, messages });
-        track("thread_opened", {});
       } catch (error) {
         fail(error);
       }
@@ -677,7 +671,6 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
           ? await api.messages.removeReaction(message.id, emoji)
           : await api.messages.addReaction(message.id, emoji);
         dispatch({ type: "reactions", conversationId: message.conversationId, messageId: message.id, reactions });
-        track(reacted ? "reaction_removed" : "reaction_added", { emoji });
       } catch (error) {
         fail(error);
       }
