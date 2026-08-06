@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, Hash, Lock, Search } from "lucide-react";
 import type { ChannelSummary, FileSummary, MessageDto } from "@/shared/types";
 import { api } from "../../api";
+import { track } from "../../analytics";
 import { formatBytes, formatRelative } from "../../format";
 import { useApp, useDirectory } from "../../store";
 import { Avatar, EmptyState, Spinner } from "../ui/primitives";
@@ -241,12 +242,20 @@ export function SearchView({ query }: { query: string }) {
     setResults(null);
     api.activity
       .search(state.workspaceId, term, sort)
-      .then(({ results: list }) => !cancelled && setResults(list))
+      .then(({ results: list }) => {
+        if (cancelled) return;
+        setResults(list);
+        // Only the committed query counts as a search. `term` changes on every keystroke,
+        // so tracking unconditionally here would emit one event per character typed.
+        if (term === query) {
+          track("search_performed", { sort, query_length: term.trim().length, result_count: list.length });
+        }
+      })
       .catch(() => !cancelled && setResults([]));
     return () => {
       cancelled = true;
     };
-  }, [state.workspaceId, term, sort]);
+  }, [state.workspaceId, term, sort, query]);
 
   return (
     <section className="view">

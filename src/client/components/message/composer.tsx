@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import type { FileSummary } from "@/shared/types";
 import { api } from "../../api";
+import { track } from "../../analytics";
 import { searchEmoji } from "../../emoji";
 import { formatBytes } from "../../format";
 import { useApp, useCustomEmoji, useDirectory } from "../../store";
@@ -242,6 +243,8 @@ export function Composer({
     try {
       for (const file of Array.from(fileList).slice(0, 10)) {
         const { file: uploaded } = await api.files.upload(workspaceId, file, conversationId);
+        // Size and type only — never the file name.
+        track("file_uploaded", { byte_size: file.size, mime_type: file.type || "unknown" });
         setAttachments((current) => [...current, uploaded]);
       }
     } catch (error) {

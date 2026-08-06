@@ -12,6 +12,15 @@ import {
 } from "react";
 import { io, type Socket } from "socket.io-client";
 import { api, ApiError, type SlashOutcome } from "./api";
+import {
+  commandName,
+  conversationKind,
+  identifyUser,
+  identifyWorkspace,
+  initAnalytics,
+  resetAnalytics,
+  track
+} from "./analytics";
 import { playNotificationSound } from "./sound";
 import { isWithinQuietHours } from "@/shared/quiet-hours";
 import type {
@@ -549,6 +558,11 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
       dispatch({ type: "view", view: { kind: "conversation", conversationId } });
       dispatch({ type: "right-panel", panel: null });
       dispatch({ type: "sidebar", open: false });
+      track("conversation_opened", {
+        conversation_kind: conversationKind(
+          stateRef.current.bootstrap?.conversations.find((entry) => entry.id === conversationId)
+        )
+      });
       await loadMessages(conversationId);
     },
     [dispatch, loadMessages]
@@ -560,6 +574,7 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
       try {
         const { messages } = await api.messages.thread(messageId);
         dispatch({ type: "thread", rootId: messageId, messages });
+        track("thread_opened", {});
       } catch (error) {
         fail(error);
       }
@@ -614,6 +629,23 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
           fileIds: input.fileIds
         });
         if (response.message) dispatch({ type: "upsert-message", message: response.message });
+
+        const command = isCommand ? commandName(input.bodyText) : null;
+        if (command) {
+          track("slash_command_used", { command });
+        } else if (!isCommand) {
+          track("message_sent", {
+            conversation_kind: conversationKind(
+              stateRef.current.bootstrap?.conversations.find((entry) => entry.id === input.conversationId)
+            ),
+            is_thread_reply: Boolean(input.parentMessageId),
+            thread_broadcast: input.threadBroadcast ?? false,
+            has_files: (input.fileIds?.length ?? 0) > 0,
+            file_count: input.fileIds?.length ?? 0,
+            body_length: input.bodyText.length
+          });
+        }
+
         dispatch({ type: "draft", key: draftKey(input.conversationId, input.parentMessageId), bodyText: "" });
         void api.conversations
           .saveDraft(input.conversationId, "", input.parentMessageId ?? null)
@@ -645,6 +677,7 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
           ? await api.messages.removeReaction(message.id, emoji)
           : await api.messages.addReaction(message.id, emoji);
         dispatch({ type: "reactions", conversationId: message.conversationId, messageId: message.id, reactions });
+        track(reacted ? "reaction_removed" : "reaction_added", { emoji });
       } catch (error) {
         fail(error);
       }
@@ -662,10 +695,17 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
 
   const selectWorkspace = useCallback(
     async (workspaceId: string) => {
+      // Captured before the dispatch: on boot this is null, which is how a real switch is
+      // told apart from the initial workspace load.
+      const previousWorkspaceId = stateRef.current.workspaceId;
       dispatch({ type: "workspace", workspaceId });
       window.localStorage.setItem("fluidchat:workspace", workspaceId);
       try {
         const bootstrap = await refreshBootstrap(workspaceId);
+        if (bootstrap) {
+          identifyWorkspace(bootstrap.workspace, bootstrap.role);
+          if (previousWorkspaceId && previousWorkspaceId !== workspaceId) track("workspace_switched", {});
+        }
         const first =
           bootstrap?.conversations.find((conversation) => conversation.channel?.name === "general") ??
           bootstrap?.conversations[0];
@@ -738,6 +778,8 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
   const signOut = useCallback(async () => {
     await api.auth.logout().catch(() => undefined);
     socketRef.current?.disconnect();
+    track("signed_out", {});
+    resetAnalytics();
     dispatch({ type: "reset" });
   }, [dispatch]);
 
@@ -815,6 +857,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const actions = useActions(state, dispatch);
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Analytics boots before the session lands so the sign-in events themselves are captured.
+  useEffect(() => {
+    initAnalytics();
+  }, []);
+
+  // Identify once per signed-in user, whichever path set the session (boot, the auth
+  // screen, an invite accept). Keyed on the id rather than the object because presence
+  // heartbeats and preference saves replace `session` on a timer.
+  useEffect(() => {
+    if (stateRef.current.session) identifyUser(stateRef.current.session);
+  }, [state.session?.id]);
 
   // Initial session load.
   useEffect(() => {
