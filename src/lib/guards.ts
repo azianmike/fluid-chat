@@ -38,6 +38,40 @@ export type RateLimitStatus = {
   resetAt: number;
 };
 
+/**
+ * The origin browsers actually reach this app on.
+ *
+ * Behind a reverse proxy `request.url` is the internal bind address
+ * (http://localhost:3100), never the public one, so it cannot be used to judge
+ * an incoming `Origin`. APP_URL is authoritative because it is the same value
+ * the app already builds its own links from; the headers nginx forwards are the
+ * fallback, and `request.url` only stands in when nothing is proxying at all.
+ */
+export function expectedOrigin(request: NextRequest): string {
+  const configured = process.env.APP_URL;
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      // A malformed APP_URL should not lock everyone out; fall through.
+    }
+  }
+  const forwardedHost = firstHeaderValue(request, "x-forwarded-host") ?? request.headers.get("host");
+  if (forwardedHost) {
+    const protocol = firstHeaderValue(request, "x-forwarded-proto") ?? new URL(request.url).protocol.replace(":", "");
+    return `${protocol}://${forwardedHost}`;
+  }
+  return new URL(request.url).origin;
+}
+
+/** Proxy chains append, so only the value this hop was handed is meaningful. */
+function firstHeaderValue(request: NextRequest, name: string): string | null {
+  const value = request.headers.get(name);
+  if (!value) return null;
+  const first = value.split(",")[0]?.trim();
+  return first ? first : null;
+}
+
 export function enforceCsrf(request: NextRequest) {
   if (!mutatingMethods.has(request.method)) return;
   // Bearer credentials are never sent ambiently by a browser, so a cross-origin
@@ -45,8 +79,7 @@ export function enforceCsrf(request: NextRequest) {
   if (request.headers.get("authorization") || request.headers.get("x-api-key")) return;
   const origin = request.headers.get("origin");
   if (!origin) return;
-  const expected = new URL(request.url).origin;
-  if (origin !== expected) throw new HttpError(403, "Invalid request origin", "csrf_failed");
+  if (origin !== expectedOrigin(request)) throw new HttpError(403, "Invalid request origin", "csrf_failed");
 }
 
 /**
