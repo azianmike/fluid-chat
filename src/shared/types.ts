@@ -44,6 +44,15 @@ export type WorkspaceSummary = {
   retentionDays: number | null;
 };
 
+export type WorkspaceUsage = {
+  activeMembers: number;
+  pendingInvites: number;
+  fileCount: number;
+  storageBytes: number;
+  /** Resolved ceiling: the workspace override or the deployment default. null means unlimited. */
+  storageLimitBytes: number | null;
+};
+
 export type WorkspaceMembership = {
   workspace: WorkspaceSummary;
   role: WorkspaceRoleName;

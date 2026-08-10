@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   channels,
@@ -22,9 +23,11 @@ import { sendEmail } from "@/lib/email";
 import { toUser } from "@/lib/realtime";
 import { extractUrls, toPlainText } from "@/shared/markdown";
 import { isWithinQuietHours } from "@/shared/quiet-hours";
+import { notBackingAnEmoji } from "../services/files";
 import { createMessage } from "../services/messages";
 import { notify } from "../services/notifications";
 import { broadcastPresence, broadcastUserUpdate } from "../services/presence";
+import { deleteObject } from "../services/storage";
 
 export type Job = {
   name: string;
@@ -205,6 +208,35 @@ function subjectFor(type: string) {
 /* Retention                                                                   */
 /* -------------------------------------------------------------------------- */
 
+/** How many attachments one cleanup pass touches at a time. */
+const PURGE_CHUNK = 500;
+
+/**
+ * Retention hard-deletes messages, and `files.message_id` is ON DELETE SET NULL —
+ * so without this the attachments survive as rows that still count against the
+ * workspace quota, pointing at bytes nothing will ever reclaim. Purge them first,
+ * while the join back to the doomed messages still exists.
+ */
+async function purgeAttachmentsOfDoomedMessages(scope: SQL | undefined) {
+  const doomed = await db
+    .select({ id: files.id, storageKey: files.storageKey })
+    .from(files)
+    .innerJoin(messages, eq(messages.id, files.messageId))
+    .where(and(scope, notBackingAnEmoji));
+
+  /*
+   * Chunked, because the first pass of a new retention policy can cover tens of
+   * thousands of attachments: one `in (...)` that wide exceeds Postgres's 65535
+   * bind parameters, and one Promise.all that wide exhausts file handles. Either
+   * throw would also strand the message deletion this runs ahead of.
+   */
+  for (let index = 0; index < doomed.length; index += PURGE_CHUNK) {
+    const chunk = doomed.slice(index, index + PURGE_CHUNK);
+    await db.delete(files).where(inArray(files.id, chunk.map((file) => file.id)));
+    await Promise.all(chunk.map((file) => deleteObject(file.storageKey).catch(() => undefined)));
+  }
+}
+
 export async function applyRetentionPolicies() {
   const workspaceRows = await db
     .select({ id: workspaces.id, retentionDays: workspaces.retentionDays })
@@ -213,7 +245,9 @@ export async function applyRetentionPolicies() {
 
   for (const workspace of workspaceRows) {
     const cutoff = new Date(Date.now() - (workspace.retentionDays ?? 0) * 86_400_000);
-    await db.delete(messages).where(and(eq(messages.workspaceId, workspace.id), lt(messages.createdAt, cutoff)));
+    const scope = and(eq(messages.workspaceId, workspace.id), lt(messages.createdAt, cutoff));
+    await purgeAttachmentsOfDoomedMessages(scope);
+    await db.delete(messages).where(scope);
   }
 
   const channelRows = await db
@@ -229,10 +263,48 @@ export async function applyRetentionPolicies() {
       .where(eq(conversations.channelId, channel.id))
       .limit(1);
     if (!conversation) continue;
-    await db
-      .delete(messages)
-      .where(and(eq(messages.conversationId, conversation.id), lt(messages.createdAt, cutoff)));
+    const scope = and(eq(messages.conversationId, conversation.id), lt(messages.createdAt, cutoff));
+    await purgeAttachmentsOfDoomedMessages(scope);
+    await db.delete(messages).where(scope);
   }
+}
+
+/**
+ * Uploads that were never posted. The composer uploads on select, so every
+ * abandoned draft leaves bytes behind that no one can see or delete.
+ *
+ * Two kinds of file legitimately live without a message and must survive this:
+ * custom emoji images, which are never attached to one at all, and attachments
+ * held by a scheduled message that has not fired yet.
+ */
+export async function purgeAbandonedUploads() {
+  const cutoff = new Date(Date.now() - 24 * 3_600_000);
+  const abandoned = await db
+    .select({ id: files.id, storageKey: files.storageKey })
+    .from(files)
+    .where(
+      and(
+        isNull(files.messageId),
+        isNull(files.deletedAt),
+        lt(files.createdAt, cutoff),
+        notBackingAnEmoji,
+        // Compared case-insensitively as text: file_ids holds whatever uuid casing
+        // the caller sent, while id::text is always lower. A mismatch here would
+        // delete the attachment out from under a scheduled message.
+        sql`not exists (
+          select 1 from scheduled_messages sm, jsonb_array_elements_text(sm.file_ids) as pending_id
+          where sm.status = 'pending' and lower(pending_id) = ${files.id}::text
+        )`
+      )
+    )
+    .limit(PURGE_CHUNK);
+  if (abandoned.length === 0) return;
+
+  await db
+    .update(files)
+    .set({ deletedAt: new Date() })
+    .where(inArray(files.id, abandoned.map((file) => file.id)));
+  await Promise.all(abandoned.map((file) => deleteObject(file.storageKey).catch(() => undefined)));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -445,5 +517,6 @@ export const jobs: Job[] = [
   { name: "export-expiry", intervalMs: 300_000, run: expireExports },
   { name: "notification-emails", intervalMs: 60_000, run: sendNotificationEmails },
   { name: "billing-grace", intervalMs: 300_000, run: enforceBillingGracePeriods },
-  { name: "retention", intervalMs: 3_600_000, run: applyRetentionPolicies }
+  { name: "retention", intervalMs: 3_600_000, run: applyRetentionPolicies },
+  { name: "abandoned-uploads", intervalMs: 3_600_000, run: purgeAbandonedUploads }
 ];

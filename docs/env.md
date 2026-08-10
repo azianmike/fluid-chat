@@ -27,7 +27,11 @@ NEXT_PUBLIC_REALTIME_URL  Websocket URL used by the browser (default http://loca
 
 ```text
 UPLOAD_DIR                Directory for uploaded files (default ./uploads).
-UPLOAD_MAX_BYTES          Max upload size in bytes (default 26214400 = 25MB).
+UPLOAD_MAX_BYTES          Max size of a single upload in bytes (default 26214400 = 25MB).
+WORKSPACE_STORAGE_LIMIT_BYTES
+                          Total live bytes one workspace may store (default 52428800
+                          = 50MB; 0 = unlimited). A workspace's storage_limit_bytes
+                          column overrides this per workspace.
 EXPORT_DIR                Directory for generated workspace exports (default ./exports).
 S3_ENDPOINT               S3-compatible endpoint (for a future object-storage driver).
 S3_BUCKET                 Object storage bucket.

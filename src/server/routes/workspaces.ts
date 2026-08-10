@@ -14,7 +14,7 @@ import {
   workspaceMembers,
   workspaces
 } from "@/db/schema";
-import { enforceSeatLimit, workspaceUsage } from "@/lib/billing";
+import { enforceSeatLimit, workspaceStorage, workspaceUsage } from "@/lib/billing";
 import { HttpError, json } from "@/lib/http";
 import {
   requireWorkspaceAdmin,
@@ -38,13 +38,23 @@ const settingsSchema = z.object({
   retentionDays: z.number().int().min(1).max(3650).nullable().optional(),
   plan: z.enum(["free", "starter", "team", "business"]).optional(),
   seatLimit: z.number().int().positive().optional(),
+  // null falls back to the deployment default, 0 is unlimited.
+  storageLimitBytes: z.number().int().min(0).nullable().optional(),
   overageAllowed: z.boolean().optional(),
   subscriptionStatus: z.enum(["active", "past_due", "grace_period", "read_only"]).optional(),
   gracePeriodEndsAt: z.coerce.date().nullable().optional(),
   readOnlyAt: z.coerce.date().nullable().optional()
 });
 
-const billingFields = ["plan", "seatLimit", "overageAllowed", "subscriptionStatus", "gracePeriodEndsAt", "readOnlyAt"] as const;
+const billingFields = [
+  "plan",
+  "seatLimit",
+  "storageLimitBytes",
+  "overageAllowed",
+  "subscriptionStatus",
+  "gracePeriodEndsAt",
+  "readOnlyAt"
+] as const;
 
 export const workspaceRoutes = defineRoutes({
   "POST /workspaces": async (ctx) => {
@@ -235,13 +245,19 @@ export const workspaceRoutes = defineRoutes({
     const user = await ctx.user();
     const workspaceId = ctx.param("workspaceId");
     await requireWorkspaceAdmin(workspaceId, user.id);
-    const [storage] = await db
-      .select({ bytes: count() })
+    const [fileCount] = await db
+      .select({ value: count() })
       .from(files)
       .where(and(eq(files.workspaceId, workspaceId), isNull(files.deletedAt)));
+    const storage = await workspaceStorage(workspaceId);
     return {
       workspace: toWorkspaceSummary(await workspaceById(workspaceId)),
-      usage: { ...(await workspaceUsage(workspaceId)), fileCount: storage?.bytes ?? 0 }
+      usage: {
+        ...(await workspaceUsage(workspaceId)),
+        fileCount: fileCount?.value ?? 0,
+        storageBytes: storage.usedBytes,
+        storageLimitBytes: storage.limitBytes
+      }
     };
   },
 

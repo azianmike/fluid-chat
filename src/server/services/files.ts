@@ -1,13 +1,28 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db/client";
-import { files } from "@/db/schema";
+import { files, workspaces } from "@/db/schema";
 import type { User } from "@/db/schema";
+import { assertWritable, checkStorageQuota, resolveStorageLimitBytes, storageUsedBytes } from "@/lib/billing";
 import { HttpError } from "@/lib/http";
 import { resolveConversationAccess } from "@/lib/permissions";
+import { formatBytes } from "@/shared/format";
 import { buildStorageKey, deleteObject, putObject } from "./storage";
 import { toFileSummary } from "./serializers";
 
 export const MAX_UPLOAD_BYTES = Number(process.env.UPLOAD_MAX_BYTES ?? 25 * 1024 * 1024);
+
+/**
+ * A file backing a custom emoji is not free to release, even once the message
+ * that carried it is gone: `custom_emoji.file_id` cascades, so deleting the row
+ * takes the emoji with it, and deleting the object leaves the emoji rendering a
+ * 404. The automatic cleanup paths — message deletion, retention, the abandoned
+ * upload sweeper — all filter by this, and those bytes keep counting against the
+ * workspace quota, since they are still genuinely held.
+ *
+ * `deleteFile` is the deliberate exception: an explicit "delete this file" is a
+ * user decision, and it can still orphan an emoji that shares the file.
+ */
+export const notBackingAnEmoji = sql`not exists (select 1 from custom_emoji ce where ce.file_id = ${files.id})`;
 
 const INLINE_MIME = /^(image\/(png|jpeg|gif|webp|avif|svg\+xml)|application\/pdf|text\/plain)$/;
 
@@ -37,26 +52,71 @@ export async function uploadFile(options: {
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const name = file.name || "upload";
-  const key = buildStorageKey(options.workspaceId, name);
-  await putObject(key, buffer);
-
   const dimensions = imageDimensions(buffer, file.type);
-  const [record] = await db
-    .insert(files)
-    .values({
-      workspaceId: options.workspaceId,
-      uploaderId: options.uploader.id,
-      conversationId: options.conversationId ?? null,
-      name,
-      mimeType: file.type || "application/octet-stream",
-      size: buffer.byteLength,
-      storageKey: key,
-      width: dimensions?.width ?? null,
-      height: dimensions?.height ?? null
-    })
-    .returning();
 
-  return toFileSummary(record);
+  // Tracked out here so a failure to commit — which happens after the callback
+  // returns, out of reach of any catch inside it — cannot strand bytes on disk
+  // with no row to find them by.
+  let writtenKey: string | null = null;
+  try {
+    /*
+     * Quota, storage write and row insert share one transaction. The advisory
+     * lock serialises uploads for this workspace only: without it two concurrent
+     * uploads both read the pre-upload total, both pass, and the ceiling is
+     * breachable by anyone willing to upload in parallel — which is exactly the
+     * case a cost control exists to stop.
+     */
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`storage:${options.workspaceId}`})::bigint)`);
+
+      const [workspace] = await tx
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, options.workspaceId))
+        .limit(1);
+      if (!workspace) throw new HttpError(404, "Workspace not found", "not_found");
+      assertWritable(workspace);
+
+      const quota = checkStorageQuota({
+        usedBytes: await storageUsedBytes(options.workspaceId, tx),
+        limitBytes: resolveStorageLimitBytes(workspace),
+        incomingBytes: buffer.byteLength,
+        overageAllowed: workspace.overageAllowed
+      });
+      if (!quota.allowed) {
+        throw new HttpError(
+          402,
+          `This workspace has used ${formatBytes(quota.usedBytes)} of its ${formatBytes(quota.limitBytes ?? 0)} storage limit ` +
+            `and this file needs ${formatBytes(buffer.byteLength)}. Delete some files to free up space.`,
+          "storage_limit_reached"
+        );
+      }
+
+      const key = buildStorageKey(options.workspaceId, name);
+      await putObject(key, buffer);
+      writtenKey = key;
+
+      const [record] = await tx
+        .insert(files)
+        .values({
+          workspaceId: options.workspaceId,
+          uploaderId: options.uploader.id,
+          conversationId: options.conversationId ?? null,
+          name,
+          mimeType: file.type || "application/octet-stream",
+          size: buffer.byteLength,
+          storageKey: key,
+          width: dimensions?.width ?? null,
+          height: dimensions?.height ?? null
+        })
+        .returning();
+      return toFileSummary(record);
+    });
+  } catch (error) {
+    // The rollback frees the row but not the bytes, so drop them by hand.
+    if (writtenKey) await deleteObject(writtenKey).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function deleteFile(fileId: string, actor: User, isModerator: boolean) {

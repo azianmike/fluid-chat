@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   customType,
   index,
@@ -112,6 +113,9 @@ export const workspaces = pgTable("workspaces", {
   stripeCustomerId: text("stripe_customer_id"),
   subscriptionStatus: text("subscription_status").notNull().default("active"),
   seatLimit: integer("seat_limit").notNull().default(5),
+  // NULL falls back to WORKSPACE_STORAGE_LIMIT_BYTES; 0 means unlimited. bigint
+  // because paid tiers are measured in GB and int4 tops out just under 2GB.
+  storageLimitBytes: bigint("storage_limit_bytes", { mode: "number" }),
   overageAllowed: boolean("overage_allowed").notNull().default(false),
   gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
   readOnlyAt: timestamp("read_only_at", { withTimezone: true }),
@@ -457,7 +461,9 @@ export const files = pgTable("files", {
   deletedAt: timestamp("deleted_at", { withTimezone: true })
 }, (table) => [
   index("files_workspace_idx").on(table.workspaceId, table.createdAt),
-  index("files_message_idx").on(table.messageId)
+  index("files_message_idx").on(table.messageId),
+  // Every upload sums this workspace's live bytes, so keep that an index-only scan.
+  index("files_workspace_live_idx").on(table.workspaceId, table.size).where(sql`${table.deletedAt} is null`)
 ]);
 
 export const customEmoji = pgTable("custom_emoji", {
@@ -470,7 +476,9 @@ export const customEmoji = pgTable("custom_emoji", {
   createdByUserId: uuid("created_by_user_id").notNull().references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 }, (table) => [
-  unique().on(table.workspaceId, table.name)
+  unique().on(table.workspaceId, table.name),
+  // Attachment cleanup asks "is this file an emoji image?" before releasing bytes.
+  index("custom_emoji_file_idx").on(table.fileId)
 ]);
 
 export const linkPreviews = pgTable("link_previews", {

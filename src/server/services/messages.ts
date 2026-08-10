@@ -22,7 +22,9 @@ import { requireWorkspaceWritable } from "@/lib/billing";
 import { deliverableRecipients, keywordRecipients, notify } from "./notifications";
 import { resolveMentionedUserIds } from "./mentions";
 import { followedThreadIds, threadFollowersFor } from "./threads";
+import { notBackingAnEmoji } from "./files";
 import { toFileSummary, toIso } from "./serializers";
+import { deleteObject } from "./storage";
 
 export const MESSAGE_PAGE_SIZE = 50;
 
@@ -302,7 +304,11 @@ export async function createMessage(input: CreateMessageInput): Promise<MessageD
           inArray(files.id, fileIds),
           eq(files.uploaderId, sender.id),
           eq(files.workspaceId, conversation.workspaceId),
-          isNull(files.messageId)
+          isNull(files.messageId),
+          // An upload abandoned long enough to be swept must not half-attach:
+          // hydration filters deleted files out, so the send would silently
+          // report success while dropping the attachment.
+          isNull(files.deletedAt)
         )
       );
   }
@@ -482,10 +488,17 @@ export async function deleteMessage(options: { message: Message; actor: User; is
     .set({ deletedAt: new Date(), deletedByUserId: options.actor.id })
     .where(eq(messages.id, options.message.id))
     .returning();
+  // Soft-deleting the rows released the quota, so release the bytes too — the
+  // same trade `deleteFile` makes for a directly deleted attachment.
+  const attachments = await db
+    .update(files)
+    .set({ deletedAt: new Date() })
+    .where(and(eq(files.messageId, updated.id), isNull(files.deletedAt), notBackingAnEmoji))
+    .returning({ storageKey: files.storageKey });
   await Promise.all([
     db.delete(messagePins).where(eq(messagePins.messageId, updated.id)),
     db.delete(savedItems).where(eq(savedItems.messageId, updated.id)),
-    db.update(files).set({ deletedAt: new Date() }).where(eq(files.messageId, updated.id))
+    ...attachments.map((file) => deleteObject(file.storageKey).catch(() => undefined))
   ]);
   await toConversation(updated.conversationId, {
     type: "message.deleted",

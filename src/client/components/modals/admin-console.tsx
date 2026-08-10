@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Hash, Lock, RefreshCw, Trash2 } from "lucide-react";
-import type { ChannelSummary, CustomEmojiDto, PublicUser } from "@/shared/types";
+import type { ChannelSummary, CustomEmojiDto, PublicUser, WorkspaceUsage } from "@/shared/types";
 import { api } from "../../api";
 import type { ApiKeyDto } from "../../api";
-import { formatRelative } from "../../format";
+import { formatBytes, formatRelative } from "../../format";
 import { useApp } from "../../store";
 import { Avatar, Modal, Spinner } from "../ui/primitives";
 
@@ -73,7 +73,7 @@ export function AdminConsole({ onClose }: { onClose: () => void }) {
 }
 
 function Overview({ workspaceId }: { workspaceId: string }) {
-  const [usage, setUsage] = useState<{ activeMembers: number; pendingInvites: number; fileCount: number } | null>(null);
+  const [usage, setUsage] = useState<WorkspaceUsage | null>(null);
   const { state } = useApp();
 
   useEffect(() => {
@@ -97,14 +97,36 @@ function Overview({ workspaceId }: { workspaceId: string }) {
         <strong>{usage?.pendingInvites ?? "—"}</strong>
       </div>
       <div className="stat-card">
-        <span>Files</span>
-        <strong>{usage?.fileCount ?? "—"}</strong>
+        <span>Storage</span>
+        <strong>{usage ? formatBytes(usage.storageBytes) : "—"}</strong>
+        {!usage ? (
+          <small>—</small>
+        ) : usage.storageLimitBytes ? (
+          <>
+            <small>
+              of {formatBytes(usage.storageLimitBytes)} · {usage.fileCount} files
+            </small>
+            <StorageBar used={usage.storageBytes} limit={usage.storageLimitBytes} />
+          </>
+        ) : (
+          <small>{usage.fileCount} files · no limit</small>
+        )}
       </div>
       <div className="stat-card">
         <span>Plan</span>
         <strong className="capitalize">{workspace?.plan ?? "free"}</strong>
         <small className="capitalize">{workspace?.subscriptionStatus}</small>
       </div>
+    </div>
+  );
+}
+
+function StorageBar({ used, limit }: { used: number; limit: number }) {
+  const ratio = Math.min(1, used / limit);
+  const level = ratio >= 1 ? "full" : ratio >= 0.8 ? "warn" : "ok";
+  return (
+    <div className={`storage-bar storage-bar-${level}`} role="progressbar" aria-valuenow={Math.round(ratio * 100)} aria-valuemin={0} aria-valuemax={100}>
+      <div style={{ width: `${ratio * 100}%` }} />
     </div>
   );
 }

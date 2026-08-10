@@ -6,14 +6,27 @@ operations: `putObject`, `objectStream`, `deleteObject`.
 ## Local disk (default)
 
 ```text
-UPLOAD_DIR=./uploads          # or /app/uploads in Docker
-UPLOAD_MAX_BYTES=26214400     # 25MB
+UPLOAD_DIR=./uploads                    # or /app/uploads in Docker
+UPLOAD_MAX_BYTES=26214400               # 25MB, one file
+WORKSPACE_STORAGE_LIMIT_BYTES=52428800  # 50MB, one workspace in total
 ```
 
 Files are written to `UPLOAD_DIR/<workspace-id>/<uuid>-<name>` and served through
 `GET /api/files/:id/download`, which checks conversation access on every request, sends
 `X-Content-Type-Options: nosniff`, and forces a download for anything that is not an image or PDF.
 Back this directory up alongside Postgres.
+
+## Quotas
+
+Two ceilings apply to every upload, both enforced in `uploadFile`:
+
+- `UPLOAD_MAX_BYTES` rejects a single oversized file with `413 file_too_large`.
+- The workspace total rejects with `402 storage_limit_reached`. See
+  [billing.md](billing.md) for how the limit resolves and what frees space again.
+
+Deleting a file, deleting the message that carried it, and retention all release
+the bytes as well as the row, and an hourly job drops uploads that were never
+posted. Storage a workspace can no longer see is storage it no longer pays for.
 
 ## S3 or MinIO
 

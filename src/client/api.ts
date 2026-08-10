@@ -16,7 +16,8 @@ import type {
   UserGroupDto,
   WorkspaceBootstrap,
   WorkspaceMembership,
-  WorkspaceSummary
+  WorkspaceSummary,
+  WorkspaceUsage
 } from "@/shared/types";
 
 export type ApiKeyDto = {
@@ -141,9 +142,7 @@ export const api = {
     removeMember: (workspaceId: string, memberId: string) =>
       del<{ ok: true }>(`/workspaces/${workspaceId}/members/${memberId}`),
     usage: (workspaceId: string) =>
-      get<{ workspace: WorkspaceSummary; usage: { activeMembers: number; pendingInvites: number; fileCount: number } }>(
-        `/workspaces/${workspaceId}/usage`
-      ),
+      get<{ workspace: WorkspaceSummary; usage: WorkspaceUsage }>(`/workspaces/${workspaceId}/usage`),
     auditEvents: (workspaceId: string) =>
       get<{
         auditEvents: Array<{

@@ -43,6 +43,13 @@
       "when": 1785904540725,
       "tag": "0005_breezy_gambit",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786335490744,
+      "tag": "0006_deep_vindicator",
+      "breakpoints": true
     }
   ]
 }

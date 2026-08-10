@@ -2694,6 +2694,29 @@ textarea:focus {
   color: var(--text-muted);
 }
 
+.storage-bar {
+  margin-top: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.storage-bar > div {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 200ms ease;
+}
+
+.storage-bar-warn > div {
+  background: var(--warning);
+}
+
+.storage-bar-full > div {
+  background: var(--danger);
+}
+
 .admin-list {
   display: grid;
   gap: 6px;
