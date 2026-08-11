@@ -116,7 +116,18 @@ export async function searchMessages(options: {
         dateRange.before ? lt(messages.createdAt, dateRange.before) : undefined,
         parsed.has.includes("link") ? sql`${messages.bodyText} ~* 'https?://'` : undefined,
         parsed.has.includes("file")
-          ? exists(db.select({ one: sql`1` }).from(files).where(eq(files.messageId, messages.id)))
+          ? exists(
+              db
+                .select({ one: sql`1` })
+                .from(files)
+                .where(
+                  and(
+                    eq(files.messageId, messages.id),
+                    isNull(files.deletedAt),
+                    gt(files.expiresAt, new Date())
+                  )
+                )
+            )
           : undefined,
         parsed.isPinned
           ? exists(db.select({ one: sql`1` }).from(messagePins).where(eq(messagePins.messageId, messages.id)))

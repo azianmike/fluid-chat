@@ -12,10 +12,12 @@
     "typecheck": "next typegen && tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "storage:migrate-local": "node --env-file=.env --import tsx scripts/migrate-local-uploads.ts",
     "worker": "tsx worker/index.ts",
     "realtime": "tsx src/realtime/server.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1108.0",
     "@node-rs/argon2": "^2.0.2",
     "@socket.io/redis-adapter": "^8.3.0",
     "drizzle-orm": "^0.45.2",

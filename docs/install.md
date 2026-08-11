@@ -50,8 +50,9 @@ npm run worker         # background jobs
 
 Put a TLS terminator in front (see [HTTPS and domains](https-domain.md)), set `APP_URL` and
 `NEXT_PUBLIC_REALTIME_URL` to the public URLs, and set `REALTIME_TOKEN` so only your app can
-publish events. Persist `UPLOAD_DIR` and `EXPORT_DIR`, and back up Postgres
-(see [Backup](backup.md)).
+publish events. Configure S3-compatible object storage for uploads and exports, and back up
+Postgres (see [Backup](backup.md) and [S3 and MinIO](s3-minio.md)). Run the worker so scheduled
+cleanup and orphaned-object sweeps remain active.
 
 ## After changing the schema
 

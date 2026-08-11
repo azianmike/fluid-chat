@@ -242,7 +242,7 @@ export const activityRoutes = defineRoutes({
           isNull(conversationMembers.leftAt)
         )
       )
-      .where(and(eq(files.workspaceId, workspaceId), isNull(files.deletedAt)))
+      .where(and(eq(files.workspaceId, workspaceId), isNull(files.deletedAt), gt(files.expiresAt, new Date())))
       .orderBy(desc(files.createdAt))
       .limit(ctx.queryInt("limit", 60));
     return { files: rows.map((row) => toFileSummary(row.file)) };

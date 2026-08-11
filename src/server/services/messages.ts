@@ -52,7 +52,10 @@ export async function hydrateMessages(rows: Message[], viewerId: string): Promis
       .innerJoin(users, eq(users.id, messageReactions.userId))
       .where(inArray(messageReactions.messageId, ids))
       .orderBy(asc(messageReactions.createdAt)),
-    db.select().from(files).where(and(inArray(files.messageId, ids), isNull(files.deletedAt))),
+    db
+      .select()
+      .from(files)
+      .where(and(inArray(files.messageId, ids), isNull(files.deletedAt), gt(files.expiresAt, new Date()))),
     db.select({ messageId: messagePins.messageId }).from(messagePins).where(inArray(messagePins.messageId, ids)),
     db
       .select({ messageId: savedItems.messageId })
@@ -302,7 +305,9 @@ export async function createMessage(input: CreateMessageInput): Promise<MessageD
           inArray(files.id, fileIds),
           eq(files.uploaderId, sender.id),
           eq(files.workspaceId, conversation.workspaceId),
-          isNull(files.messageId)
+          isNull(files.messageId),
+          isNull(files.deletedAt),
+          gt(files.expiresAt, new Date())
         )
       );
   }

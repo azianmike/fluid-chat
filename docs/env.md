@@ -1,6 +1,7 @@
 # Environment Variables
 
-Only `DATABASE_URL` is required. Everything else has a working default for local development.
+`DATABASE_URL` is required. S3-compatible storage settings are also required to use file uploads
+or workspace exports; Docker Compose supplies a local MinIO configuration.
 
 ## Core
 
@@ -26,14 +27,18 @@ NEXT_PUBLIC_REALTIME_URL  Websocket URL used by the browser (default http://loca
 ## Files
 
 ```text
-UPLOAD_DIR                Directory for uploaded files (default ./uploads).
-UPLOAD_MAX_BYTES          Max upload size in bytes (default 26214400 = 25MB).
-EXPORT_DIR                Directory for generated workspace exports (default ./exports).
-S3_ENDPOINT               S3-compatible endpoint (for a future object-storage driver).
+S3_ENDPOINT               S3-compatible endpoint, such as the Cloudflare R2 S3 API endpoint.
 S3_BUCKET                 Object storage bucket.
 S3_ACCESS_KEY             Object storage access key.
 S3_SECRET_KEY             Object storage secret key.
+S3_REGION                 S3 region (default auto; use auto for Cloudflare R2).
+S3_FORCE_PATH_STYLE       Set true for MinIO/providers that require path-style URLs.
 ```
+
+Uploads are limited to 10MB each and 100MB of active files per workspace. They expire after 15
+days. Both the API and worker enforce expiration, and the worker also sweeps the `files/` prefix
+for orphaned objects. Workspace exports are stored in S3 and expire after 7 days. No runtime
+upload or export data is written to local disk.
 
 ## Email
 

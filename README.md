@@ -27,9 +27,10 @@ npm run realtime      # websocket fan-out on :3001
 npm run worker        # scheduled messages, reminders, exports, retention, email
 ```
 
-Postgres is the only hard dependency. Redis is optional: with `REDIS_URL` set the realtime
-server fans out through Redis pub/sub (needed for more than one app process); without it the
-app posts events straight to the realtime server over HTTP.
+Postgres and S3-compatible object storage are the durable dependencies. Redis is optional: with
+`REDIS_URL` set the realtime server fans out through Redis pub/sub (needed for more than one app
+process); without it the app posts events straight to the realtime server over HTTP. Uploads are
+limited to 10MB each and 100MB per workspace, and expire after 15 days.
 
 For the full stack in containers:
 
@@ -157,6 +158,7 @@ npm run test        # vitest unit suite
 npm run typecheck   # tsc --noEmit
 npm run db:generate # generate a migration from schema changes
 npm run db:migrate  # apply migrations
+npm run storage:migrate-local # copy legacy disk uploads to S3/R2
 ```
 
 ## Docs
