@@ -454,9 +454,11 @@ export const files = pgTable("files", {
   width: integer("width"),
   height: integer("height"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   deletedAt: timestamp("deleted_at", { withTimezone: true })
 }, (table) => [
   index("files_workspace_idx").on(table.workspaceId, table.createdAt),
+  index("files_expiry_idx").on(table.expiresAt),
   index("files_message_idx").on(table.messageId)
 ]);
 

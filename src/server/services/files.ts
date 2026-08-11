@@ -1,13 +1,12 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { files } from "@/db/schema";
 import type { User } from "@/db/schema";
 import { HttpError } from "@/lib/http";
 import { resolveConversationAccess } from "@/lib/permissions";
+import { assertFileUploadAllowed, fileExpiresAt } from "./file-policy";
 import { buildStorageKey, deleteObject, putObject } from "./storage";
 import { toFileSummary } from "./serializers";
-
-export const MAX_UPLOAD_BYTES = Number(process.env.UPLOAD_MAX_BYTES ?? 25 * 1024 * 1024);
 
 const INLINE_MIME = /^(image\/(png|jpeg|gif|webp|avif|svg\+xml)|application\/pdf|text\/plain)$/;
 
@@ -49,35 +48,71 @@ export async function uploadFile(options: {
   if (!file || typeof file.arrayBuffer !== "function") {
     throw new HttpError(400, "No file provided", "missing_file");
   }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    throw new HttpError(413, `Files must be smaller than ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB`, "file_too_large");
-  }
+  assertFileUploadAllowed(file.size);
   if (options.conversationId) {
-    await resolveConversationAccess(options.conversationId, options.uploader.id);
+    const access = await resolveConversationAccess(options.conversationId, options.uploader.id);
+    if (access.conversation.workspaceId !== options.workspaceId) {
+      throw new HttpError(400, "Conversation is not in this workspace", "workspace_mismatch");
+    }
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  assertFileUploadAllowed(buffer.byteLength);
   const name = file.name || "upload";
   const key = buildStorageKey(options.workspaceId, name);
-  await putObject(key, buffer);
-
+  const expiresAt = fileExpiresAt();
   const dimensions = imageDimensions(buffer, file.type);
-  const [record] = await db
-    .insert(files)
-    .values({
-      workspaceId: options.workspaceId,
-      uploaderId: options.uploader.id,
-      conversationId: options.conversationId ?? null,
-      name,
-      mimeType: file.type || "application/octet-stream",
-      size: buffer.byteLength,
-      storageKey: key,
-      width: dimensions?.width ?? null,
-      height: dimensions?.height ?? null
-    })
-    .returning();
+  let objectUploaded = false;
 
-  return toFileSummary(record);
+  try {
+    const record = await db.transaction(async (tx) => {
+      // Serialize quota checks for this workspace. Without this lock, two
+      // simultaneous uploads could both observe enough remaining capacity.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${options.workspaceId}, 0))`);
+      const [usage] = await tx
+        .select({ bytes: sql<string>`coalesce(sum(${files.size}), 0)::text` })
+        .from(files)
+        .where(
+          and(
+            eq(files.workspaceId, options.workspaceId),
+            isNull(files.deletedAt),
+            gt(files.expiresAt, new Date())
+          )
+        );
+      assertFileUploadAllowed(buffer.byteLength, Number(usage?.bytes ?? 0));
+
+      await putObject(key, buffer, {
+        contentType: file.type || "application/octet-stream",
+        expiresAt
+      });
+      objectUploaded = true;
+
+      const [inserted] = await tx
+        .insert(files)
+        .values({
+          workspaceId: options.workspaceId,
+          uploaderId: options.uploader.id,
+          conversationId: options.conversationId ?? null,
+          name,
+          mimeType: file.type || "application/octet-stream",
+          size: buffer.byteLength,
+          storageKey: key,
+          width: dimensions?.width ?? null,
+          height: dimensions?.height ?? null,
+          expiresAt
+        })
+        .returning();
+      return inserted;
+    });
+    return toFileSummary(record);
+  } catch (error) {
+    if (objectUploaded) {
+      await deleteObject(key).catch((cleanupError) => {
+        console.error(`[storage] failed to roll back object ${key}`, cleanupError);
+      });
+    }
+    throw error;
+  }
 }
 
 export async function deleteFile(fileId: string, actor: User, isModerator: boolean) {
@@ -87,14 +122,21 @@ export async function deleteFile(fileId: string, actor: User, isModerator: boole
     throw new HttpError(403, "Cannot delete this file", "delete_forbidden");
   }
   await db.update(files).set({ deletedAt: new Date() }).where(eq(files.id, record.id));
-  await deleteObject(record.storageKey).catch(() => undefined);
+  try {
+    await deleteObject(record.storageKey);
+    await db.delete(files).where(eq(files.id, record.id));
+  } catch (error) {
+    // The file is already inaccessible. Keep its tombstone so the cleanup job
+    // can retry physical object deletion without blocking the user request.
+    console.error(`[storage] deferred deletion for object ${record.storageKey}`, error);
+  }
 }
 
 export async function readableFile(fileId: string, userId: string) {
   const [record] = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt), gt(files.expiresAt, new Date())))
     .limit(1);
   if (!record) throw new HttpError(404, "File not found", "not_found");
 
