@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
 import {
@@ -24,6 +24,7 @@ import {
 import { toUser, toWorkspace } from "@/lib/realtime";
 import { addDays } from "@/lib/security";
 import { defineRoutes } from "../router";
+import { EXPORT_RETENTION_DAYS } from "../services/file-policy";
 import { toPublicUser, toWorkspaceSummary } from "../services/serializers";
 import { bootstrapWorkspace, createAudit, createWorkspace } from "../services/workspaces";
 import { workspaceById } from "../services/conversations";
@@ -236,12 +237,19 @@ export const workspaceRoutes = defineRoutes({
     const workspaceId = ctx.param("workspaceId");
     await requireWorkspaceAdmin(workspaceId, user.id);
     const [storage] = await db
-      .select({ bytes: count() })
+      .select({
+        fileCount: count(),
+        fileBytes: sql<string>`coalesce(sum(${files.size}), 0)::text`
+      })
       .from(files)
-      .where(and(eq(files.workspaceId, workspaceId), isNull(files.deletedAt)));
+      .where(and(eq(files.workspaceId, workspaceId), isNull(files.deletedAt), gt(files.expiresAt, new Date())));
     return {
       workspace: toWorkspaceSummary(await workspaceById(workspaceId)),
-      usage: { ...(await workspaceUsage(workspaceId)), fileCount: storage?.bytes ?? 0 }
+      usage: {
+        ...(await workspaceUsage(workspaceId)),
+        fileCount: storage?.fileCount ?? 0,
+        fileBytes: Number(storage?.fileBytes ?? 0)
+      }
     };
   },
 
@@ -270,7 +278,12 @@ export const workspaceRoutes = defineRoutes({
     await requireWorkspaceOwner(workspaceId, user.id);
     const [job] = await db
       .insert(exportJobs)
-      .values({ workspaceId, requestedByUserId: user.id, status: "queued", expiresAt: addDays(7) })
+      .values({
+        workspaceId,
+        requestedByUserId: user.id,
+        status: "queued",
+        expiresAt: addDays(EXPORT_RETENTION_DAYS)
+      })
       .returning();
     await createAudit(workspaceId, user.id, "export.requested", "export_job", job.id);
     return json({ exportJob: job }, 202);
@@ -365,7 +378,14 @@ export const workspaceRoutes = defineRoutes({
     const [file] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, input.fileId), eq(files.workspaceId, workspaceId)))
+      .where(
+        and(
+          eq(files.id, input.fileId),
+          eq(files.workspaceId, workspaceId),
+          isNull(files.deletedAt),
+          gt(files.expiresAt, new Date())
+        )
+      )
       .limit(1);
     if (!file) throw new HttpError(404, "Upload the image first", "not_found");
 

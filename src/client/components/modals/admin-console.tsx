@@ -766,8 +766,8 @@ function Exports({ workspaceId, isOwner }: { workspaceId: string; isOwner: boole
   return (
     <div className="stack-form">
       <p className="muted">
-        Exports include every message, channel, member and file manifest as JSONL and CSV, written to the server’s export
-        directory.
+        Exports include every message, channel, member and active file manifest as JSONL and CSV, stored in object storage
+        for 7 days.
       </p>
       <button
         type="button"

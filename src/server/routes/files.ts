@@ -1,4 +1,3 @@
-import { Readable } from "node:stream";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
@@ -30,7 +29,7 @@ export const fileRoutes = defineRoutes({
   "GET /files/:fileId/download": async (ctx) => {
     const user = await ctx.user();
     const record = await readableFile(ctx.param("fileId"), user.id);
-    const stream = Readable.toWeb(objectStream(record.storageKey)) as ReadableStream;
+    const stream = await objectStream(record.storageKey);
     return new Response(stream, {
       headers: {
         "content-type": record.mimeType,
@@ -38,7 +37,7 @@ export const fileRoutes = defineRoutes({
         "content-disposition": contentDisposition(record.mimeType, record.name),
         "x-content-type-options": "nosniff",
         "content-security-policy": "default-src 'none'; sandbox",
-        "cache-control": "private, max-age=3600"
+        "cache-control": "private, no-store"
       }
     });
   },

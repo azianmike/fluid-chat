@@ -1,5 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { and, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
@@ -25,6 +23,15 @@ import { isWithinQuietHours } from "@/shared/quiet-hours";
 import { createMessage } from "../services/messages";
 import { notify } from "../services/notifications";
 import { broadcastPresence, broadcastUserUpdate } from "../services/presence";
+import {
+  buildExportPrefix,
+  deleteObject,
+  deleteObjectsWithPrefix,
+  purgeExpiredStorageObjects,
+  putObject,
+  storageKeyFromUri,
+  storageUri
+} from "../services/storage";
 
 export type Job = {
   name: string;
@@ -235,6 +242,24 @@ export async function applyRetentionPolicies() {
   }
 }
 
+/** Remove hidden/deleted files and enforce the 15-day object retention window. */
+export async function purgeExpiredFiles() {
+  const due = await db
+    .select()
+    .from(files)
+    .where(or(isNotNull(files.deletedAt), lte(files.expiresAt, new Date())))
+    .limit(100);
+
+  for (const file of due) {
+    try {
+      await deleteObject(file.storageKey);
+      await db.delete(files).where(eq(files.id, file.id));
+    } catch (error) {
+      console.error(`[storage] failed to purge object ${file.storageKey}`, error);
+    }
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Link previews                                                               */
 /* -------------------------------------------------------------------------- */
@@ -315,10 +340,8 @@ export async function runExports() {
 
   for (const job of jobs) {
     await db.update(exportJobs).set({ status: "processing", updatedAt: new Date() }).where(eq(exportJobs.id, job.id));
+    const prefix = buildExportPrefix(job.workspaceId, job.id);
     try {
-      const dir = path.join(process.env.EXPORT_DIR ?? path.join(process.cwd(), "exports"), job.workspaceId, job.id);
-      await mkdir(dir, { recursive: true });
-
       const [memberRows, channelRows, conversationRows, messageRows, reactionRows, fileRows, emojiRows] =
         await Promise.all([
           db
@@ -330,88 +353,126 @@ export async function runExports() {
           db.select().from(conversations).where(eq(conversations.workspaceId, job.workspaceId)),
           db.select().from(messages).where(eq(messages.workspaceId, job.workspaceId)),
           db.select().from(messageReactions).where(eq(messageReactions.workspaceId, job.workspaceId)),
-          db.select().from(files).where(eq(files.workspaceId, job.workspaceId)),
+          db
+            .select()
+            .from(files)
+            .where(
+              and(
+                eq(files.workspaceId, job.workspaceId),
+                isNull(files.deletedAt),
+                sql`${files.expiresAt} > now()`
+              )
+            ),
           db.select().from(customEmoji).where(eq(customEmoji.workspaceId, job.workspaceId))
         ]);
 
-      await writeFile(
-        path.join(dir, "users.csv"),
-        [
-          "id,email,display_name,handle,role,status,joined_at",
-          ...memberRows.map(({ user, member }) =>
-            [user.id, user.email, user.displayName, user.handle, member.role, member.status, member.joinedAt]
-              .map(csvCell)
-              .join(",")
+      const artifacts: Array<{ name: string; contentType: string; body: string }> = [
+        {
+          name: "users.csv",
+          contentType: "text/csv; charset=utf-8",
+          body: [
+            "id,email,display_name,handle,role,status,joined_at",
+            ...memberRows.map(({ user, member }) =>
+              [user.id, user.email, user.displayName, user.handle, member.role, member.status, member.joinedAt]
+                .map(csvCell)
+                .join(",")
+            )
+          ].join("\n")
+        },
+        {
+          name: "channels.csv",
+          contentType: "text/csv; charset=utf-8",
+          body: [
+            "id,name,visibility,topic,description,archived_at,created_at",
+            ...channelRows.map((channel) =>
+              [
+                channel.id,
+                channel.name,
+                channel.visibility,
+                channel.topic,
+                channel.description,
+                channel.archivedAt,
+                channel.createdAt
+              ]
+                .map(csvCell)
+                .join(",")
+            )
+          ].join("\n")
+        },
+        {
+          name: "conversations.jsonl",
+          contentType: "application/x-ndjson",
+          body: conversationRows.map((row) => JSON.stringify(row)).join("\n")
+        },
+        {
+          name: "messages.jsonl",
+          contentType: "application/x-ndjson",
+          body: messageRows
+            .map((message) => JSON.stringify({ ...message, plainText: toPlainText(message.bodyText) }))
+            .join("\n")
+        },
+        {
+          name: "reactions.jsonl",
+          contentType: "application/x-ndjson",
+          body: reactionRows.map((row) => JSON.stringify(row)).join("\n")
+        },
+        {
+          name: "emoji.json",
+          contentType: "application/json",
+          body: JSON.stringify(emojiRows, null, 2)
+        },
+        {
+          name: "files_manifest.json",
+          contentType: "application/json",
+          body: JSON.stringify(
+            {
+              count: fileRows.length,
+              files: fileRows.map((file) => ({
+                id: file.id,
+                name: file.name,
+                size: file.size,
+                mimeType: file.mimeType,
+                storageKey: file.storageKey,
+                messageId: file.messageId
+              }))
+            },
+            null,
+            2
           )
-        ].join("\n")
-      );
-      await writeFile(
-        path.join(dir, "channels.csv"),
-        [
-          "id,name,visibility,topic,description,archived_at,created_at",
-          ...channelRows.map((channel) =>
-            [
-              channel.id,
-              channel.name,
-              channel.visibility,
-              channel.topic,
-              channel.description,
-              channel.archivedAt,
-              channel.createdAt
-            ]
-              .map(csvCell)
-              .join(",")
-          )
-        ].join("\n")
-      );
-      await writeFile(path.join(dir, "conversations.jsonl"), conversationRows.map((row) => JSON.stringify(row)).join("\n"));
-      await writeFile(
-        path.join(dir, "messages.jsonl"),
-        messageRows
-          .map((message) => JSON.stringify({ ...message, plainText: toPlainText(message.bodyText) }))
-          .join("\n")
-      );
-      await writeFile(path.join(dir, "reactions.jsonl"), reactionRows.map((row) => JSON.stringify(row)).join("\n"));
-      await writeFile(path.join(dir, "emoji.json"), JSON.stringify(emojiRows, null, 2));
-      await writeFile(
-        path.join(dir, "files_manifest.json"),
-        JSON.stringify(
-          {
-            count: fileRows.length,
-            files: fileRows.map((file) => ({
-              id: file.id,
-              name: file.name,
-              size: file.size,
-              mimeType: file.mimeType,
-              storageKey: file.storageKey,
-              messageId: file.messageId
-            }))
-          },
-          null,
-          2
+        },
+        {
+          name: "README.txt",
+          contentType: "text/plain; charset=utf-8",
+          body: [
+            "Fluid Chat workspace export",
+            `Generated: ${new Date().toISOString()}`,
+            "",
+            "users.csv           workspace members",
+            "channels.csv        channels and their settings",
+            "conversations.jsonl channels, DMs and group DMs",
+            "messages.jsonl      every message, one JSON object per line",
+            "reactions.jsonl     emoji reactions",
+            "emoji.json          custom emoji",
+            "files_manifest.json uploaded file metadata and storage keys"
+          ].join("\n")
+        }
+      ];
+
+      await Promise.all(
+        artifacts.map((artifact) =>
+          putObject(`${prefix}/${artifact.name}`, Buffer.from(artifact.body), {
+            contentType: artifact.contentType,
+            expiresAt: job.expiresAt ?? undefined
+          })
         )
-      );
-      await writeFile(
-        path.join(dir, "README.txt"),
-        [
-          "Fluid Chat workspace export",
-          `Generated: ${new Date().toISOString()}`,
-          "",
-          "users.csv           workspace members",
-          "channels.csv        channels and their settings",
-          "conversations.jsonl channels, DMs and group DMs",
-          "messages.jsonl      every message, one JSON object per line",
-          "reactions.jsonl     emoji reactions",
-          "emoji.json          custom emoji",
-          "files_manifest.json uploaded file metadata and storage keys"
-        ].join("\n")
       );
 
       await db
         .update(exportJobs)
-        .set({ status: "ready", fileUrl: dir, updatedAt: new Date() })
+        .set({ status: "ready", fileUrl: storageUri(`${prefix}/`), updatedAt: new Date() })
         .where(eq(exportJobs.id, job.id));
     } catch (error) {
+      await deleteObjectsWithPrefix(`${prefix}/`).catch(() => undefined);
       await db
         .update(exportJobs)
         .set({
@@ -425,10 +486,23 @@ export async function runExports() {
 }
 
 export async function expireExports() {
-  await db
-    .update(exportJobs)
-    .set({ status: "expired", updatedAt: new Date() })
+  const expired = await db
+    .select()
+    .from(exportJobs)
     .where(and(eq(exportJobs.status, "ready"), lte(exportJobs.expiresAt, new Date())));
+
+  for (const job of expired) {
+    const key = storageKeyFromUri(job.fileUrl);
+    try {
+      if (key) await deleteObjectsWithPrefix(key);
+      await db
+        .update(exportJobs)
+        .set({ status: "expired", fileUrl: null, updatedAt: new Date() })
+        .where(eq(exportJobs.id, job.id));
+    } catch (error) {
+      console.error(`[storage] failed to expire export ${job.id}`, error);
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -443,6 +517,8 @@ export const jobs: Job[] = [
   { name: "link-previews", intervalMs: 30_000, run: unfurlLinks },
   { name: "exports", intervalMs: 30_000, run: runExports },
   { name: "export-expiry", intervalMs: 300_000, run: expireExports },
+  { name: "file-expiry", intervalMs: 300_000, run: purgeExpiredFiles },
+  { name: "storage-expiry", intervalMs: 3_600_000, run: purgeExpiredStorageObjects },
   { name: "notification-emails", intervalMs: 60_000, run: sendNotificationEmails },
   { name: "billing-grace", intervalMs: 300_000, run: enforceBillingGracePeriods },
   { name: "retention", intervalMs: 3_600_000, run: applyRetentionPolicies }

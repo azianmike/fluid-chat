@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
 import {
@@ -240,7 +240,7 @@ export const conversationRoutes = defineRoutes({
     const rows = await db
       .select()
       .from(files)
-      .where(and(eq(files.conversationId, conversationId), isNull(files.deletedAt)))
+      .where(and(eq(files.conversationId, conversationId), isNull(files.deletedAt), gt(files.expiresAt, new Date())))
       .orderBy(desc(files.createdAt))
       .limit(ctx.queryInt("limit", 50));
     return { files: rows.map(toFileSummary) };
