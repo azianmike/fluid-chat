@@ -29,18 +29,31 @@ export const fileRoutes = defineRoutes({
   "GET /files/:fileId/download": async (ctx) => {
     const user = await ctx.user();
     const record = await readableFile(ctx.param("fileId"), user.id);
+
+    // Uploads are immutable: each one gets a fresh storage key and nothing ever
+    // rewrites an object, so the file id alone is a strong validator. Both
+    // responses share these headers so the two paths cannot drift apart.
+    //
+    // no-cache, not max-age: the HTTP cache is keyed by URL per browser
+    // profile, not per account, so any freshness window would let a second
+    // person signed in on the same profile read a cached file without this
+    // route ever running. Revalidating every time keeps readableFile the only
+    // way to reach an object, and costs a 304 rather than an S3 read.
+    const cacheHeaders = { etag: `"${record.id}"`, "cache-control": "private, no-cache" };
+
+    if (ctx.request.headers.get("if-none-match") === cacheHeaders.etag) {
+      return new Response(null, { status: 304, headers: cacheHeaders });
+    }
+
     const stream = await objectStream(record.storageKey);
     return new Response(stream, {
       headers: {
+        ...cacheHeaders,
         "content-type": record.mimeType,
         "content-length": String(record.size),
         "content-disposition": contentDisposition(record.mimeType, record.name),
         "x-content-type-options": "nosniff",
-        "content-security-policy": "default-src 'none'; sandbox",
-        // Browser-only cache (never a proxy or CDN). Short enough that a
-        // deleted or expired file stops rendering within minutes, long enough
-        // that scrolling a channel does not re-stream every image from S3.
-        "cache-control": "private, max-age=300"
+        "content-security-policy": "default-src 'none'; sandbox"
       }
     });
   },
