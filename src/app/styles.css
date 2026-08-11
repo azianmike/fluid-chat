@@ -1319,6 +1319,9 @@ textarea:focus {
 }
 
 .attachment-image img {
+  display: block;
+  width: auto;
+  height: auto;
   max-width: 360px;
   max-height: 280px;
   border-radius: var(--radius-md);
