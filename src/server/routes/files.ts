@@ -37,7 +37,10 @@ export const fileRoutes = defineRoutes({
         "content-disposition": contentDisposition(record.mimeType, record.name),
         "x-content-type-options": "nosniff",
         "content-security-policy": "default-src 'none'; sandbox",
-        "cache-control": "private, no-store"
+        // Browser-only cache (never a proxy or CDN). Short enough that a
+        // deleted or expired file stops rendering within minutes, long enough
+        // that scrolling a channel does not re-stream every image from S3.
+        "cache-control": "private, max-age=300"
       }
     });
   },

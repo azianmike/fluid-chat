@@ -59,10 +59,16 @@ export async function uploadFile(options: {
   const buffer = Buffer.from(await file.arrayBuffer());
   assertFileUploadAllowed(buffer.byteLength);
   const name = file.name || "upload";
+  const mimeType = file.type || "application/octet-stream";
   const key = buildStorageKey(options.workspaceId, name);
   const expiresAt = fileExpiresAt();
   const dimensions = imageDimensions(buffer, file.type);
-  let objectUploaded = false;
+
+  // Write the object before opening the transaction. An S3 round-trip inside
+  // db.transaction would hold a pool connection — and the workspace quota lock
+  // — for the length of the upload, so a handful of concurrent uploads could
+  // starve every other query. Anything that fails below rolls the object back.
+  await putObject(key, buffer, { contentType: mimeType, expiresAt });
 
   try {
     const record = await db.transaction(async (tx) => {
@@ -81,12 +87,6 @@ export async function uploadFile(options: {
         );
       assertFileUploadAllowed(buffer.byteLength, Number(usage?.bytes ?? 0));
 
-      await putObject(key, buffer, {
-        contentType: file.type || "application/octet-stream",
-        expiresAt
-      });
-      objectUploaded = true;
-
       const [inserted] = await tx
         .insert(files)
         .values({
@@ -94,7 +94,7 @@ export async function uploadFile(options: {
           uploaderId: options.uploader.id,
           conversationId: options.conversationId ?? null,
           name,
-          mimeType: file.type || "application/octet-stream",
+          mimeType,
           size: buffer.byteLength,
           storageKey: key,
           width: dimensions?.width ?? null,
@@ -106,11 +106,9 @@ export async function uploadFile(options: {
     });
     return toFileSummary(record);
   } catch (error) {
-    if (objectUploaded) {
-      await deleteObject(key).catch((cleanupError) => {
-        console.error(`[storage] failed to roll back object ${key}`, cleanupError);
-      });
-    }
+    await deleteObject(key).catch((cleanupError) => {
+      console.error(`[storage] failed to roll back object ${key}`, cleanupError);
+    });
     throw error;
   }
 }
