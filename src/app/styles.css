@@ -1318,6 +1318,12 @@ textarea:focus {
   margin-top: 6px;
 }
 
+.attachment-image {
+  display: block;
+  padding: 0;
+  border-radius: var(--radius-md);
+}
+
 .attachment-image img {
   display: block;
   width: auto;
@@ -1326,6 +1332,15 @@ textarea:focus {
   max-height: 280px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
+}
+
+.attachment-image:hover img {
+  border-color: var(--border-strong);
+}
+
+.attachment-image:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .attachment-file,
@@ -2427,6 +2442,24 @@ textarea:focus {
   gap: 8px;
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border);
+}
+
+.image-preview-canvas {
+  display: grid;
+  min-height: min(560px, calc(86vh - 150px));
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  overflow: auto;
+}
+
+.image-preview-canvas img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(86vh - 182px);
+  object-fit: contain;
 }
 
 .modal-section {
