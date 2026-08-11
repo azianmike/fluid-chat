@@ -18,12 +18,13 @@ import {
   Smile,
   Trash2
 } from "lucide-react";
-import type { MessageDto } from "@/shared/types";
+import type { FileSummary, MessageDto } from "@/shared/types";
 import { api } from "../../api";
 import { formatBytes, formatDateTime, formatRelative, formatTime } from "../../format";
 import { useApp, useDirectory } from "../../store";
 import { Avatar, IconButton, MenuDivider, MenuItem, Popover } from "../ui/primitives";
 import { EmojiPicker } from "../ui/emoji-picker";
+import { ImagePreview } from "./image-preview";
 import { EmojiValue, RichText } from "./rich-text";
 
 const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉"];
@@ -43,6 +44,7 @@ export function MessageItem({
   const directory = useDirectory();
   const [localEditing, setLocalEditing] = useState(false);
   const [editText, setEditText] = useState(message.bodyText);
+  const [previewFile, setPreviewFile] = useState<FileSummary | null>(null);
   // ↑ in the composer asks the store to edit the last message you sent.
   const editing = localEditing || state.editingMessageId === message.id;
   const setEditing = (value: boolean) => {
@@ -178,7 +180,13 @@ export function MessageItem({
           <div className="attachments">
             {message.files.map((file) =>
               file.mimeType.startsWith("image/") ? (
-                <a key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" className="attachment-image">
+                <button
+                  key={file.id}
+                  type="button"
+                  className="attachment-image"
+                  aria-label={`Preview ${file.name}`}
+                  onClick={() => setPreviewFile(file)}
+                >
                   {/* Known dimensions keep the scroll position stable while images load. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -188,7 +196,7 @@ export function MessageItem({
                     width={file.width ?? undefined}
                     height={file.height ?? undefined}
                   />
-                </a>
+                </button>
               ) : (
                 <a key={file.id} href={file.url} target="_blank" rel="noopener noreferrer" className="attachment-file">
                   <Download size={16} />
@@ -445,6 +453,7 @@ export function MessageItem({
           )}
         </Popover>
       </div>
+      {previewFile ? <ImagePreview file={previewFile} onClose={() => setPreviewFile(null)} /> : null}
     </article>
   );
 }
