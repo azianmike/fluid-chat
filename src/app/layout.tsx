@@ -3,7 +3,10 @@ import "./styles.css";
 
 export const metadata: Metadata = {
   title: "Fluid Chat",
-  description: "Self-hosted team chat: channels, DMs, threads, search and files"
+  description: "Self-hosted team chat: channels, DMs, threads, search and files",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }]
+  }
 };
 
 export const viewport: Viewport = {
