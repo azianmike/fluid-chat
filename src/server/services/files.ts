@@ -13,9 +13,30 @@ const INLINE_MIME = /^(image\/(png|jpeg|gif|webp|avif|svg\+xml)|application\/pdf
 
 /** Only images and PDFs render inline; everything else downloads. */
 export function contentDisposition(mimeType: string, name: string) {
-  const safeName = name.replace(/["\\\r\n]/g, "_");
+  const headerName = sanitizeDownloadName(name);
+  const fallbackName = headerName
+    .normalize("NFKD")
+    .replace(/\p{Mark}/gu, "")
+    .replace(/[^\x20-\x7e]/g, "_")
+    .replace(/["\\/]/g, "_");
   const disposition = INLINE_MIME.test(mimeType) && mimeType !== "image/svg+xml" ? "inline" : "attachment";
-  return `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+  return `${disposition}; filename="${fallbackName}"; filename*=UTF-8''${encodeRfc5987(headerName)}`;
+}
+
+/**
+ * Content-Disposition is a byte-valued HTTP header. Keep its legacy filename
+ * fallback printable ASCII and carry the real Unicode name in filename*.
+ */
+function sanitizeDownloadName(name: string) {
+  const safe = name.replace(/[\u0000-\u001f\u007f/\\]/g, "_");
+  return safe.trim() ? safe : "download";
+}
+
+/** Percent-encode the characters encodeURIComponent leaves out of attr-char. */
+function encodeRfc5987(value: string) {
+  return encodeURIComponent(value).replace(/['()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
 }
 
 export async function uploadFile(options: {
