@@ -26,9 +26,8 @@ import { useApp, useDirectory, useMentionDirectory } from "../../store";
 import { Avatar, IconButton, MenuDivider, MenuItem, Popover } from "../ui/primitives";
 import { EmojiPicker } from "../ui/emoji-picker";
 import { ImagePreview } from "./image-preview";
+import { MessageReactions, QuickReactions } from "./reactions";
 import { EmojiValue, RichText } from "./rich-text";
-
-const QUICK_REACTIONS = ["👍", "✅", "👀", "🎉"];
 
 export function MessageItem({
   message,
@@ -230,32 +229,7 @@ export function MessageItem({
           </a>
         ))}
 
-        {message.reactions.length > 0 ? (
-          <div className="reactions">
-            {message.reactions.map((reaction) => (
-              <button
-                key={reaction.emoji}
-                type="button"
-                className={reaction.reacted ? "reaction is-mine" : "reaction"}
-                title={`${reaction.users.map((user) => user.displayName).join(", ")} reacted with ${reaction.emoji}`}
-                onClick={() => void actions.toggleReaction(message, reaction.emoji)}
-              >
-                <EmojiValue value={reaction.emoji} />
-                <span>{reaction.count}</span>
-              </button>
-            ))}
-            <Popover
-              width={340}
-              trigger={({ toggle, ref }) => (
-                <button type="button" className="reaction add-reaction" onClick={toggle} ref={ref} aria-label="Add reaction">
-                  <Smile size={14} />
-                </button>
-              )}
-            >
-              {(close) => <EmojiPicker onPick={(value) => void actions.toggleReaction(message, value)} onClose={close} />}
-            </Popover>
-          </div>
-        ) : null}
+        <MessageReactions message={message} />
 
         {context !== "thread" && message.thread.replyCount > 0 ? (
           <button type="button" className="thread-summary" onClick={() => void actions.openThread(message.id)}>
@@ -275,11 +249,7 @@ export function MessageItem({
       </div>
 
       <div className="message-toolbar" role="toolbar" aria-label="Message actions">
-        {QUICK_REACTIONS.map((emoji) => (
-          <button key={emoji} type="button" title={`React ${emoji}`} onClick={() => void actions.toggleReaction(message, emoji)}>
-            {emoji}
-          </button>
-        ))}
+        <QuickReactions message={message} />
         <Popover
           width={340}
           align="end"

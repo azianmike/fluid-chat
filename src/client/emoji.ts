@@ -446,6 +446,24 @@ export function emojiChar(name: string, customEmoji?: Map<string, string>) {
   return byName.get(key) ?? byName.get(ALIASES[key] ?? "") ?? undefined;
 }
 
+const TONE_SUFFIX = /[\u{1F3FB}-\u{1F3FF}]$/u;
+const byChar = new Map<string, string>();
+for (const category of EMOJI_CATEGORIES) {
+  for (const [name, char] of category.emoji) if (!byChar.has(char)) byChar.set(char, name);
+}
+
+/**
+ * The `:shortcode:` for a stored reaction value, used to label reactions the
+ * way Slack does ("…reacted with :tada:"). Skin-toned and unknown characters
+ * have no catalog entry, so they fall back to the character itself.
+ */
+export function emojiLabel(value: string) {
+  const custom = /^:([a-z0-9_+-]+):$/i.exec(value);
+  if (custom) return `:${custom[1].toLowerCase()}:`;
+  const name = byChar.get(value) ?? byChar.get(value.replace(TONE_SUFFIX, ""));
+  return name ? `:${name}:` : value;
+}
+
 export function searchEmoji(query: string, limit = 40) {
   const term = query.trim().toLowerCase();
   if (!term) return [];
@@ -478,8 +496,11 @@ export function frequentEmoji(limit = 12): string[] {
   }
 }
 
+let cachedShortcuts: string[] | null = null;
+
 export function rememberEmoji(value: string) {
   if (typeof window === "undefined") return;
+  cachedShortcuts = null;
   try {
     const counts = JSON.parse(window.localStorage.getItem(FREQUENT_KEY) ?? "{}") as Record<string, number>;
     counts[value] = (counts[value] ?? 0) + 1;
@@ -487,6 +508,21 @@ export function rememberEmoji(value: string) {
   } catch {
     // A full or blocked localStorage just means we keep the defaults.
   }
+}
+
+/**
+ * Top reactions as ready-to-send values, for the per-message hover toolbar.
+ *
+ * Deduplicated after resolving, because the frequency list mixes stored
+ * characters with default shortcodes — once someone picks 👍, the list holds
+ * both "👍" and "+1", which name the same reaction.
+ *
+ * Cached because every message on screen renders its own toolbar, and parsing
+ * localStorage once per message on mount is wasted work.
+ */
+export function reactionShortcuts(limit = 4) {
+  cachedShortcuts ??= [...new Set(frequentEmoji(limit * 3).map((entry) => emojiChar(entry) ?? entry))].slice(0, limit);
+  return cachedShortcuts;
 }
 
 const SKIN_TONES = ["", "\u{1F3FB}", "\u{1F3FC}", "\u{1F3FD}", "\u{1F3FE}", "\u{1F3FF}"];

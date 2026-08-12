@@ -23,12 +23,14 @@ import {
 } from "./analytics";
 import { playNotificationSound } from "./sound";
 import { isWithinQuietHours } from "@/shared/quiet-hours";
+import { toggleReactionGroup, withReacted } from "@/shared/reactions";
 import type { MentionDirectory } from "@/shared/mention-text";
 import type {
   ConversationSummary,
   MessageDto,
   NotificationDto,
   PublicUser,
+  ReactionGroup,
   RealtimeEvent,
   SessionUser,
   WorkspaceBootstrap,
@@ -135,7 +137,7 @@ type Action =
   | { type: "prepend-messages"; conversationId: string; items: MessageDto[]; hasMore: boolean }
   | { type: "upsert-message"; message: MessageDto }
   | { type: "remove-message"; conversationId: string; messageId: string; parentMessageId: string | null }
-  | { type: "reactions"; conversationId: string; messageId: string; reactions: MessageDto["reactions"] }
+  | { type: "reactions"; conversationId: string; messageId: string; reactions: ReactionGroup[] }
   | { type: "thread"; rootId: string; messages: MessageDto[] }
   | { type: "typing"; conversationId: string; userId: string; parentMessageId: string | null }
   | { type: "prune-typing" }
@@ -295,8 +297,12 @@ function reducer(state: State, action: Action): State {
       return next;
     }
     case "reactions": {
+      // `reacted` is resolved here rather than trusted from the payload: the
+      // same groups are broadcast to everyone in the conversation, so only this
+      // client knows whether *this* viewer is among the reactors.
+      const reactions = withReacted(action.reactions, state.session?.id);
       const apply = (items: MessageDto[]) =>
-        items.map((item) => (item.id === action.messageId ? { ...item, reactions: action.reactions } : item));
+        items.map((item) => (item.id === action.messageId ? { ...item, reactions } : item));
       const next = { ...state };
       const bucket = state.messages[action.conversationId];
       if (bucket) {
@@ -666,13 +672,22 @@ function useActions(state: State, dispatch: React.Dispatch<Action>) {
 
   const toggleReaction = useCallback(
     async (message: MessageDto, emoji: string) => {
-      const reacted = message.reactions.find((reaction) => reaction.emoji === emoji)?.reacted;
+      const session = stateRef.current.session;
+      if (!session) return;
+      const previous = message.reactions;
+      const reacted = previous.some((reaction) => reaction.emoji === emoji && reaction.reacted);
+      const target = { conversationId: message.conversationId, messageId: message.id };
+
+      // The chip flips on the click and is reconciled with the server's groups
+      // when they land, so reacting feels instant on a slow connection.
+      dispatch({ type: "reactions", ...target, reactions: toggleReactionGroup(previous, emoji, session, reacted) });
       try {
         const { reactions } = reacted
           ? await api.messages.removeReaction(message.id, emoji)
           : await api.messages.addReaction(message.id, emoji);
-        dispatch({ type: "reactions", conversationId: message.conversationId, messageId: message.id, reactions });
+        dispatch({ type: "reactions", ...target, reactions });
       } catch (error) {
+        dispatch({ type: "reactions", ...target, reactions: previous });
         fail(error);
       }
     },

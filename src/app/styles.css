@@ -1454,6 +1454,51 @@ textarea:focus {
   color: var(--text-subtle);
 }
 
+/* Who reacted, on hover or keyboard focus. Portalled, so it is positioned in
+   viewport coordinates and never clipped by the scrolling message list. */
+.reaction-tooltip {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.reaction-tooltip p {
+  margin: 0;
+}
+
+.reaction-tooltip strong {
+  color: var(--text);
+}
+
+.reaction-tooltip-emoji {
+  flex: none;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.reaction-tooltip-emoji .inline-emoji {
+  width: 26px;
+  height: 26px;
+  vertical-align: 0;
+}
+
+.reaction-tooltip-name {
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+
 /* Thread summary ---------------------------------------------------------- */
 
 .thread-summary {

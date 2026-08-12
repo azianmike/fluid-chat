@@ -12,13 +12,14 @@ import {
 } from "@/lib/permissions";
 import { toConversation } from "@/lib/realtime";
 import { toPlainText } from "@/shared/markdown";
+import { withReacted } from "@/shared/reactions";
 import { defineRoutes } from "../router";
 import {
   createMessage,
   deleteMessage,
   hydrateMessageById,
   listThreadMessages,
-  messageReactionSummaries,
+  messageReactionGroups,
   postSystemMessage,
   updateMessage
 } from "../services/messages";
@@ -84,12 +85,15 @@ export const messageRoutes = defineRoutes({
       .onConflictDoNothing()
       .returning();
 
-    const reactions = await messageReactionSummaries(message.id, user.id);
+    // Broadcast the viewer-independent groups; each client decides for itself
+    // whether it is in the `users` list. Only the caller's own response carries
+    // a `reacted` flag.
+    const groups = await messageReactionGroups(message.id);
     await toConversation(message.conversationId, {
       type: "reaction.changed",
       conversationId: message.conversationId,
       messageId: message.id,
-      reactions
+      reactions: groups
     });
 
     if (created && message.senderId !== user.id) {
@@ -104,7 +108,7 @@ export const messageRoutes = defineRoutes({
       });
     }
     void access;
-    return json({ reactions }, 201);
+    return json({ reactions: withReacted(groups, user.id) }, 201);
   },
 
   "DELETE /messages/:messageId/reactions/:emoji": async (ctx) => {
@@ -120,14 +124,14 @@ export const messageRoutes = defineRoutes({
           eq(messageReactions.emoji, ctx.param("emoji", { raw: true }))
         )
       );
-    const reactions = await messageReactionSummaries(message.id, user.id);
+    const groups = await messageReactionGroups(message.id);
     await toConversation(message.conversationId, {
       type: "reaction.changed",
       conversationId: message.conversationId,
       messageId: message.id,
-      reactions
+      reactions: groups
     });
-    return { reactions };
+    return { reactions: withReacted(groups, user.id) };
   },
 
   "POST /messages/:messageId/pin": async (ctx) => {

@@ -88,10 +88,22 @@ export type ConversationSummary = {
   mentionCount: number;
 };
 
-export type ReactionSummary = {
+/**
+ * One emoji's worth of reactions on a message, in the order people reacted.
+ * Deliberately viewer-independent so it is safe to broadcast to a whole room.
+ */
+export type ReactionGroup = {
   emoji: string;
   count: number;
   users: Array<{ id: string; displayName: string }>;
+};
+
+export type ReactionSummary = ReactionGroup & {
+  /**
+   * Whether *the viewer this payload was built for* reacted. Only ever send
+   * this on a per-viewer response — a broadcast carrying one user's flag tells
+   * everybody else in the room that they reacted.
+   */
   reacted: boolean;
 };
 
@@ -239,7 +251,7 @@ export type RealtimeEvent =
   | { type: "message.created"; conversationId: string; message: MessageDto }
   | { type: "message.updated"; conversationId: string; message: MessageDto }
   | { type: "message.deleted"; conversationId: string; messageId: string; parentMessageId: string | null }
-  | { type: "reaction.changed"; conversationId: string; messageId: string; reactions: ReactionSummary[] }
+  | { type: "reaction.changed"; conversationId: string; messageId: string; reactions: ReactionGroup[] }
   | { type: "conversation.read"; conversationId: string; userId: string; lastReadAt: string }
   | { type: "conversation.updated"; conversationId: string }
   | { type: "typing"; conversationId: string; userId: string; parentMessageId: string | null }

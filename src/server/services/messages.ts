@@ -16,7 +16,8 @@ import type { Conversation, Message, User } from "@/db/schema";
 import { HttpError } from "@/lib/http";
 import { toConversation, toUsers } from "@/lib/realtime";
 import { toPlainText } from "@/shared/markdown";
-import type { MessageDto, ReactionSummary } from "@/shared/types";
+import { groupReactions, withReacted } from "@/shared/reactions";
+import type { MessageDto, ReactionGroup } from "@/shared/types";
 import { requireWorkspaceMember } from "@/lib/permissions";
 import { requireWorkspaceWritable } from "@/lib/billing";
 import { deliverableRecipients, keywordRecipients, notify } from "./notifications";
@@ -25,6 +26,26 @@ import { followedThreadIds, threadFollowersFor } from "./threads";
 import { toFileSummary, toIso } from "./serializers";
 
 export const MESSAGE_PAGE_SIZE = 50;
+
+/* -------------------------------------------------------------------------- */
+/* Reactions                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Reaction groups for a single message, with no viewer baked in. Realtime
+ * broadcasts must use this rather than a summary built for whoever clicked:
+ * that user's `reacted` flag would land on every other client in the room and
+ * light up the chip as theirs.
+ */
+export async function messageReactionGroups(messageId: string): Promise<ReactionGroup[]> {
+  const rows = await db
+    .select({ emoji: messageReactions.emoji, id: messageReactions.userId, displayName: users.displayName })
+    .from(messageReactions)
+    .innerJoin(users, eq(users.id, messageReactions.userId))
+    .where(eq(messageReactions.messageId, messageId))
+    .orderBy(asc(messageReactions.createdAt));
+  return rows.reduce(groupReactions, [] as ReactionGroup[]);
+}
 
 /* -------------------------------------------------------------------------- */
 /* Hydration                                                                   */
@@ -44,9 +65,8 @@ export async function hydrateMessages(rows: Message[], viewerId: string): Promis
       .select({
         messageId: messageReactions.messageId,
         emoji: messageReactions.emoji,
-        userId: messageReactions.userId,
-        displayName: users.displayName,
-        createdAt: messageReactions.createdAt
+        id: messageReactions.userId,
+        displayName: users.displayName
       })
       .from(messageReactions)
       .innerJoin(users, eq(users.id, messageReactions.userId))
@@ -81,23 +101,10 @@ export async function hydrateMessages(rows: Message[], viewerId: string): Promis
     )
   ]);
 
-  const reactions = new Map<string, ReactionSummary[]>();
+  const reactions = new Map<string, ReactionGroup[]>();
   for (const row of reactionRows) {
     const list = reactions.get(row.messageId) ?? [];
-    const existing = list.find((item) => item.emoji === row.emoji);
-    if (existing) {
-      existing.count += 1;
-      existing.users.push({ id: row.userId, displayName: row.displayName });
-      existing.reacted ||= row.userId === viewerId;
-    } else {
-      list.push({
-        emoji: row.emoji,
-        count: 1,
-        users: [{ id: row.userId, displayName: row.displayName }],
-        reacted: row.userId === viewerId
-      });
-    }
-    reactions.set(row.messageId, list);
+    reactions.set(row.messageId, groupReactions(list, row));
   }
 
   const filesByMessage = new Map<string, ReturnType<typeof toFileSummary>[]>();
@@ -144,7 +151,7 @@ export async function hydrateMessages(rows: Message[], viewerId: string): Promis
     editedAt: toIso(row.editedAt),
     deletedAt: toIso(row.deletedAt),
     createdAt: new Date(row.createdAt).toISOString(),
-    reactions: row.deletedAt ? [] : reactions.get(row.id) ?? [],
+    reactions: row.deletedAt ? [] : withReacted(reactions.get(row.id) ?? [], viewerId),
     files: row.deletedAt ? [] : filesByMessage.get(row.id) ?? [],
     links: row.deletedAt ? [] : previewsByMessage.get(row.id) ?? [],
     thread: {
@@ -499,12 +506,4 @@ export async function deleteMessage(options: { message: Message; actor: User; is
     parentMessageId: updated.parentMessageId
   });
   return updated;
-}
-
-export async function messageReactionSummaries(messageId: string, viewerId: string) {
-  const [dto] = await hydrateMessages(
-    await db.select().from(messages).where(eq(messages.id, messageId)).limit(1),
-    viewerId
-  );
-  return dto?.reactions ?? [];
 }
