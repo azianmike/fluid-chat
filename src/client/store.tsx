@@ -23,6 +23,7 @@ import {
 } from "./analytics";
 import { playNotificationSound } from "./sound";
 import { isWithinQuietHours } from "@/shared/quiet-hours";
+import type { MentionDirectory } from "@/shared/mention-text";
 import type {
   ConversationSummary,
   MessageDto,
@@ -1064,6 +1065,23 @@ export function useDirectory() {
     if (state.session) map.set(state.session.id, state.session);
     return map;
   }, [state.bootstrap, state.session]);
+}
+
+/** Lookup tables used to swap mention tokens for readable labels while editing. */
+export function useMentionDirectory(): MentionDirectory {
+  const { state } = useApp();
+  return useMemo(
+    () => ({
+      users: [
+        ...(state.bootstrap?.members ?? []).map((member) => member.user),
+        ...(state.bootstrap?.bots ?? []),
+        ...(state.session ? [state.session] : [])
+      ],
+      groups: state.bootstrap?.groups ?? [],
+      channels: state.bootstrap?.channels ?? []
+    }),
+    [state.bootstrap, state.session]
+  );
 }
 
 export function useCustomEmoji() {

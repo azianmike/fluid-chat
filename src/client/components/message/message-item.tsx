@@ -19,9 +19,10 @@ import {
   Trash2
 } from "lucide-react";
 import type { FileSummary, MessageDto } from "@/shared/types";
+import { toMentionDisplay, toMentionWire } from "@/shared/mention-text";
 import { api } from "../../api";
 import { formatBytes, formatDateTime, formatRelative, formatTime } from "../../format";
-import { useApp, useDirectory } from "../../store";
+import { useApp, useDirectory, useMentionDirectory } from "../../store";
 import { Avatar, IconButton, MenuDivider, MenuItem, Popover } from "../ui/primitives";
 import { EmojiPicker } from "../ui/emoji-picker";
 import { ImagePreview } from "./image-preview";
@@ -42,15 +43,17 @@ export function MessageItem({
 }) {
   const { state, actions } = useApp();
   const directory = useDirectory();
+  const mentions = useMentionDirectory();
   const [localEditing, setLocalEditing] = useState(false);
-  const [editText, setEditText] = useState(message.bodyText);
+  // Edited text is held in display form, same as the composer.
+  const [editText, setEditText] = useState(() => toMentionDisplay(message.bodyText, mentions));
   const [previewFile, setPreviewFile] = useState<FileSummary | null>(null);
   // ↑ in the composer asks the store to edit the last message you sent.
   const editing = localEditing || state.editingMessageId === message.id;
   const setEditing = (value: boolean) => {
     setLocalEditing(value);
     if (!value && state.editingMessageId === message.id) actions.setEditingMessage(null);
-    if (value) setEditText(message.bodyText);
+    if (value) setEditText(toMentionDisplay(message.bodyText, mentions));
   };
   const sender = directory.get(message.senderId);
   const timeFormat = state.session?.preferences?.timeFormat ?? "12h";
@@ -62,7 +65,10 @@ export function MessageItem({
   const sharedId = (message.metadata as { sharedMessageId?: string } | null)?.sharedMessageId;
 
   useEffect(() => {
-    if (state.editingMessageId === message.id) setEditText(message.bodyText);
+    if (state.editingMessageId === message.id) setEditText(toMentionDisplay(message.bodyText, mentions));
+    // Only reload when the store starts an edit. `mentions` changes identity on
+    // every presence event, which must not discard what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.editingMessageId, message.id, message.bodyText]);
 
   if (message.type !== "user") {
@@ -138,7 +144,7 @@ export function MessageItem({
             onSubmit={async (event) => {
               event.preventDefault();
               try {
-                const { message: updated } = await api.messages.update(message.id, editText);
+                const { message: updated } = await api.messages.update(message.id, toMentionWire(editText, mentions));
                 actions.upsertMessage(updated);
                 setEditing(false);
               } catch (error) {

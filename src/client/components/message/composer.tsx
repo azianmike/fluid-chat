@@ -28,11 +28,12 @@ import {
   X
 } from "lucide-react";
 import type { FileSummary } from "@/shared/types";
+import { toMentionDisplay, toMentionWire, userMentionLabel } from "@/shared/mention-text";
 import { api } from "../../api";
 import { track } from "../../analytics";
 import { searchEmoji } from "../../emoji";
 import { formatBytes } from "../../format";
-import { useApp, useCustomEmoji, useDirectory } from "../../store";
+import { useApp, useCustomEmoji, useDirectory, useMentionDirectory } from "../../store";
 import { Avatar, IconButton, Popover } from "../ui/primitives";
 import { EmojiPicker } from "../ui/emoji-picker";
 
@@ -53,14 +54,21 @@ export function Composer({
 }) {
   const { state, actions } = useApp();
   const directory = useDirectory();
+  const mentions = useMentionDirectory();
   const customEmoji = useCustomEmoji();
   const draftKey = `${conversationId}:${parentMessageId ?? "root"}`;
-  const [text, setText] = useState(state.drafts[draftKey] ?? "");
+  // `text` is always display form (`@bob`); tokens are restored at every exit.
+  const [text, setText] = useState(() => toMentionDisplay(state.drafts[draftKey] ?? "", mentions));
   const [attachments, setAttachments] = useState<FileSummary[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [broadcast, setBroadcast] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
+  // The suggestion menu is derived from the caret during render, so the caret
+  // has to be state: a DOM caret moved after render would be read stale.
+  const [caret, setCaret] = useState(0);
+  // Escape hides the menu until the caret moves off this spot.
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [commands, setCommands] = useState<Array<{ name: string; usage: string; description: string }>>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,7 +79,9 @@ export function Composer({
   const conversation = state.bootstrap?.conversations.find((entry) => entry.id === conversationId);
 
   useEffect(() => {
-    setText(state.drafts[draftKey] ?? "");
+    const draft = toMentionDisplay(state.drafts[draftKey] ?? "", mentions);
+    setText(draft);
+    setCaret(draft.length);
     setAttachments([]);
     // Draft text is owned by the store; only reset when switching targets.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,9 +104,10 @@ export function Composer({
   const persistDraft = useCallback(
     (value: string) => {
       if (draftTimer.current) clearTimeout(draftTimer.current);
-      draftTimer.current = setTimeout(() => actions.saveDraft(conversationId, value, parentMessageId), 700);
+      const bodyText = toMentionWire(value, mentions);
+      draftTimer.current = setTimeout(() => actions.saveDraft(conversationId, bodyText, parentMessageId), 700);
     },
-    [actions, conversationId, parentMessageId]
+    [actions, conversationId, mentions, parentMessageId]
   );
 
   const broadcastTyping = useCallback(() => {
@@ -111,17 +122,15 @@ export function Composer({
   /* ------------------------------------------------------------ suggestions */
 
   const trigger = useMemo(() => {
-    const element = textareaRef.current;
-    const caret = element?.selectionStart ?? text.length;
     const before = text.slice(0, caret);
     const match = /(^|[\s(])([@#:/])([\w.+-]*)$/.exec(before);
     if (!match) return null;
     if (match[2] === "/" && before.trim() !== `/${match[3]}`) return null;
     return { symbol: match[2], query: match[3].toLowerCase(), start: caret - match[3].length - 1, end: caret };
-  }, [text]);
+  }, [caret, text]);
 
   const suggestions = useMemo<Suggestion[]>(() => {
-    if (!trigger) return [];
+    if (!trigger || caret === dismissedAt) return [];
     const { symbol, query } = trigger;
 
     if (symbol === "@") {
@@ -136,7 +145,8 @@ export function Composer({
           id: member.user.id,
           label: member.user.displayName,
           hint: member.user.handle ? `@${member.user.handle}` : undefined,
-          insert: `<@${member.user.id}> `,
+          // Readable text, not the id — `send` swaps it back for `<@uuid>`.
+          insert: `@${userMentionLabel(member.user)} `,
           avatarUserId: member.user.id
         }));
       const groups = (state.bootstrap?.groups ?? [])
@@ -146,7 +156,7 @@ export function Composer({
           id: group.id,
           label: `@${group.handle}`,
           hint: `${group.memberIds.length} people`,
-          insert: `<!group:${group.id}|${group.handle}> `
+          insert: `@${group.handle} `
         }));
       const broadcasts = ["here", "channel", "everyone"]
         .filter((name) => !query || name.startsWith(query))
@@ -154,7 +164,7 @@ export function Composer({
           id: name,
           label: `@${name}`,
           hint: name === "here" ? "Notify people who are active" : "Notify everyone in this conversation",
-          insert: `<!${name}> `
+          insert: `@${name} `
         }));
       return [...people, ...groups, ...broadcasts];
     }
@@ -167,7 +177,7 @@ export function Composer({
           id: channel.id,
           label: `#${channel.name}`,
           hint: channel.topic ?? undefined,
-          insert: `<#${channel.id}|${channel.name}> `
+          insert: `#${channel.name} `
         }));
     }
 
@@ -190,22 +200,31 @@ export function Composer({
       .filter((command) => !query || command.name.startsWith(query))
       .slice(0, 8)
       .map((command) => ({ id: command.name, label: command.usage, hint: command.description, insert: `/${command.name} ` }));
-  }, [commands, customEmoji, state.bootstrap, state.session?.id, trigger]);
+  }, [caret, commands, customEmoji, dismissedAt, state.bootstrap, state.session?.id, trigger]);
 
   useEffect(() => setSuggestionIndex(0), [suggestions.length]);
 
-  const applySuggestion = (suggestion: Suggestion) => {
-    if (!trigger) return;
-    const next = `${text.slice(0, trigger.start)}${suggestion.insert}${text.slice(trigger.end)}`;
+  /**
+   * The one place the composer rewrites its own text. Text, caret state and the
+   * DOM selection are set together, so the suggestion menu never derives from a
+   * caret that has moved on. The DOM lags a frame behind the controlled value.
+   */
+  const replaceText = (next: string, selectionStart: number, selectionEnd = selectionStart) => {
     setText(next);
+    setCaret(selectionStart);
     persistDraft(next);
     requestAnimationFrame(() => {
       const element = textareaRef.current;
       if (!element) return;
-      const caret = trigger.start + suggestion.insert.length;
       element.focus();
-      element.setSelectionRange(caret, caret);
+      element.setSelectionRange(selectionStart, selectionEnd);
     });
+  };
+
+  const applySuggestion = (suggestion: Suggestion) => {
+    if (!trigger) return;
+    const next = `${text.slice(0, trigger.start)}${suggestion.insert}${text.slice(trigger.end)}`;
+    replaceText(next, trigger.start + suggestion.insert.length);
   };
 
   /* --------------------------------------------------------------- actions */
@@ -217,12 +236,7 @@ export function Composer({
     const end = element.selectionEnd;
     const selected = text.slice(start, end) || "text";
     const next = `${text.slice(0, start)}${before}${selected}${after}${text.slice(end)}`;
-    setText(next);
-    persistDraft(next);
-    requestAnimationFrame(() => {
-      element.focus();
-      element.setSelectionRange(start + before.length, start + before.length + selected.length);
-    });
+    replaceText(next, start + before.length, start + before.length + selected.length);
   };
 
   const prefixLines = (prefix: string) => {
@@ -231,9 +245,7 @@ export function Composer({
     const start = element.selectionStart;
     const lineStart = text.lastIndexOf("\n", start - 1) + 1;
     const next = `${text.slice(0, lineStart)}${prefix}${text.slice(lineStart)}`;
-    setText(next);
-    persistDraft(next);
-    requestAnimationFrame(() => element.focus());
+    replaceText(next, start + prefix.length);
   };
 
   const uploadFiles = async (fileList: FileList | File[]) => {
@@ -255,9 +267,10 @@ export function Composer({
   };
 
   const send = async () => {
-    const body = text.trim();
+    const body = toMentionWire(text, mentions).trim();
     if (!body && attachments.length === 0) return;
     setText("");
+    setCaret(0);
     setAttachments([]);
     if (draftTimer.current) clearTimeout(draftTimer.current);
     await actions.sendMessage({
@@ -289,7 +302,7 @@ export function Composer({
         return;
       }
       if (event.key === "Escape") {
-        setText((value) => value);
+        setDismissedAt(caret);
         return;
       }
     }
@@ -327,6 +340,7 @@ export function Composer({
 
   const onChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
     setText(event.target.value);
+    setCaret(event.target.selectionStart ?? event.target.value.length);
     persistDraft(event.target.value);
     broadcastTyping();
   };
@@ -420,6 +434,7 @@ export function Composer({
           ref={textareaRef}
           value={text}
           onChange={onChange}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           placeholder={placeholder}
@@ -482,8 +497,7 @@ export function Composer({
                 <EmojiPicker
                   onPick={(value) => {
                     const next = `${text}${text.endsWith(" ") || !text ? "" : " "}${value} `;
-                    setText(next);
-                    persistDraft(next);
+                    replaceText(next, next.length);
                   }}
                   onClose={close}
                 />
@@ -501,7 +515,12 @@ export function Composer({
             <IconButton
               label="Schedule for later"
               onClick={() =>
-                actions.setModal({ kind: "schedule", conversationId, bodyText: text, parentMessageId })
+                actions.setModal({
+                  kind: "schedule",
+                  conversationId,
+                  bodyText: toMentionWire(text, mentions),
+                  parentMessageId
+                })
               }
               disabled={!text.trim()}
             >

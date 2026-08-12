@@ -7,6 +7,7 @@ import { track } from "../../analytics";
 import { EMOJI_CATEGORIES } from "../../emoji";
 import { conversationTitle, useApp, useDirectory } from "../../store";
 import { Avatar, Modal } from "../ui/primitives";
+import { RichText } from "../message/rich-text";
 
 /* -------------------------------------------------------------------------- */
 /* Invite                                                                      */
@@ -793,7 +794,9 @@ export function ScheduleModal({
   return (
     <Modal title="Schedule message" onClose={onClose}>
       <p className="muted">This message will be sent automatically at the time you pick.</p>
-      <blockquote className="schedule-preview">{bodyText}</blockquote>
+      <blockquote className="schedule-preview">
+        <RichText text={bodyText} />
+      </blockquote>
       <label className="field">
         Send at
         <input type="datetime-local" value={when} onChange={(event) => setWhen(event.target.value)} />
