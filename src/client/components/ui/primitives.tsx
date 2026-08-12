@@ -113,21 +113,30 @@ export function Popover({
   width?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<CSSProperties>({});
+  const [position, setPosition] = useState<CSSProperties>({ visibility: "hidden" });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const panelWidth = width ?? 280;
 
   useLayoutEffect(() => {
-    if (!open || !triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    const panelWidth = width ?? 280;
+    const trigger = triggerRef.current;
+    const panel = panelRef.current;
+    if (!open || !trigger || !panel) return;
+    const rect = trigger.getBoundingClientRect();
+    const gap = 6;
+    const margin = 8;
+    // Room for the panel between the trigger and each edge of the viewport.
+    const below = window.innerHeight - rect.bottom - gap - margin;
+    const above = rect.top - gap - margin;
+    const flip = panel.scrollHeight > below && above > below;
+    const maxHeight = flip ? above : below;
     const left = align === "end" ? rect.right - panelWidth : rect.left;
     setPosition({
-      top: Math.min(rect.bottom + 6, window.innerHeight - 80),
-      left: Math.max(8, Math.min(left, window.innerWidth - panelWidth - 8)),
-      width: panelWidth
+      top: flip ? rect.top - gap - Math.min(panel.scrollHeight, maxHeight) : rect.bottom + gap,
+      left: Math.max(margin, Math.min(left, window.innerWidth - panelWidth - margin)),
+      maxHeight
     });
-  }, [open, align, width]);
+  }, [open, align, panelWidth]);
 
   useEffect(() => {
     if (!open) return;
@@ -152,7 +161,7 @@ export function Popover({
       {trigger({ open, toggle: () => setOpen((value) => !value), ref: triggerRef })}
       {open
         ? createPortal(
-            <div className="popover" style={position} ref={panelRef} role="dialog">
+            <div className="popover" style={{ width: panelWidth, ...position }} ref={panelRef} role="dialog">
               {children(() => setOpen(false))}
             </div>,
             document.body
