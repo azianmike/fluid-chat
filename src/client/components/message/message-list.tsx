@@ -9,22 +9,34 @@ import { Spinner } from "../ui/primitives";
 import { MessageItem } from "./message-item";
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
+// Tight on purpose: scrolling up even a little is a deliberate act, and we should
+// stop following the bottom the moment the reader does.
+const BOTTOM_THRESHOLD_PX = 48;
 
 export function MessageList({ conversationId }: { conversationId: string }) {
   const { state, actions } = useApp();
   const bucket = state.messages[conversationId];
   const scrollRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const previousHeight = useRef(0);
+  const lastHeight = useRef(0);
   const unreadMarkerId = state.lastReadMarkers[conversationId] ?? null;
   const messages = useMemo(() => bucket?.items ?? [], [bucket]);
+  const ready = !!bucket && !(bucket.loading && messages.length === 0);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const element = scrollRef.current;
+    if (element) element.scrollTo({ top: element.scrollHeight, behavior });
+  }, []);
 
   const onScroll = useCallback(() => {
     const element = scrollRef.current;
     if (!element) return;
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    setAtBottom(distanceFromBottom < 120);
+    pinned.current = distanceFromBottom < BOTTOM_THRESHOLD_PX;
+    setAtBottom(pinned.current);
     if (element.scrollTop < 240 && bucket?.hasMore && !bucket.loading) {
       previousHeight.current = element.scrollHeight;
       void actions.loadOlderMessages(conversationId);
@@ -40,14 +52,32 @@ export function MessageList({ conversationId }: { conversationId: string }) {
     previousHeight.current = 0;
   }, [messages.length]);
 
+  // Follow the bottom only when the list actually gets *taller* — a new message, a
+  // reaction chip, an edit, an image finishing its load. Reflows that leave the
+  // height alone (hover states, scrollbars, width changes) must not move the view.
   useEffect(() => {
-    if (atBottom) bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, atBottom]);
+    const element = scrollRef.current;
+    const content = contentRef.current;
+    if (!element || !content) return;
+    const observer = new ResizeObserver(() => {
+      const height = element.scrollHeight;
+      const grew = height > lastHeight.current;
+      lastHeight.current = height;
+      // The history anchor above owns scrollTop until it has run.
+      if (!grew || !pinned.current || previousHeight.current !== 0) return;
+      element.scrollTop = height;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [ready]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    pinned.current = true;
+    previousHeight.current = 0;
+    lastHeight.current = 0;
     setAtBottom(true);
-    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ block: "end" }));
-  }, [conversationId]);
+    scrollToBottom();
+  }, [conversationId, ready, scrollToBottom]);
 
   if (!bucket || (bucket.loading && messages.length === 0)) {
     return (
@@ -60,40 +90,41 @@ export function MessageList({ conversationId }: { conversationId: string }) {
   return (
     <div className="message-scroll-wrap">
       <div className="message-scroll" ref={scrollRef} onScroll={onScroll}>
-        {bucket.hasMore ? (
-          <div className="history-loader">{bucket.loading ? <Spinner label="Loading history" /> : "Scroll for older messages"}</div>
-        ) : (
-          <ConversationIntro conversationId={conversationId} />
-        )}
+        <div ref={contentRef}>
+          {bucket.hasMore ? (
+            <div className="history-loader">{bucket.loading ? <Spinner label="Loading history" /> : "Scroll for older messages"}</div>
+          ) : (
+            <ConversationIntro conversationId={conversationId} />
+          )}
 
-        {messages.map((message, index) => {
-          const previous = messages[index - 1];
-          const showDay = !previous || !isSameDay(new Date(previous.createdAt), new Date(message.createdAt));
-          const grouped =
-            !showDay &&
-            !!previous &&
-            previous.senderId === message.senderId &&
-            previous.type === "user" &&
-            message.type === "user" &&
-            new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() < GROUP_WINDOW_MS;
+          {messages.map((message, index) => {
+            const previous = messages[index - 1];
+            const showDay = !previous || !isSameDay(new Date(previous.createdAt), new Date(message.createdAt));
+            const grouped =
+              !showDay &&
+              !!previous &&
+              previous.senderId === message.senderId &&
+              previous.type === "user" &&
+              message.type === "user" &&
+              new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() < GROUP_WINDOW_MS;
 
-          return (
-            <div key={message.id}>
-              {showDay ? (
-                <div className="day-divider">
-                  <span>{formatDayLabel(message.createdAt)}</span>
-                </div>
-              ) : null}
-              {unreadMarkerId === message.id ? (
-                <div className="unread-divider">
-                  <span>New messages</span>
-                </div>
-              ) : null}
-              <MessageItem message={message} grouped={grouped} />
-            </div>
-          );
-        })}
-        <div ref={bottomRef} />
+            return (
+              <div key={message.id}>
+                {showDay ? (
+                  <div className="day-divider">
+                    <span>{formatDayLabel(message.createdAt)}</span>
+                  </div>
+                ) : null}
+                {unreadMarkerId === message.id ? (
+                  <div className="unread-divider">
+                    <span>New messages</span>
+                  </div>
+                ) : null}
+                <MessageItem message={message} grouped={grouped} />
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <TypingIndicator conversationId={conversationId} />
@@ -103,8 +134,9 @@ export function MessageList({ conversationId }: { conversationId: string }) {
           type="button"
           className="jump-latest"
           onClick={() => {
+            pinned.current = true;
             setAtBottom(true);
-            bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+            scrollToBottom("smooth");
           }}
         >
           <ArrowDown size={14} /> Jump to latest
