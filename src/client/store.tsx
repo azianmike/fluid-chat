@@ -21,8 +21,8 @@ import {
   resetAnalytics,
   track
 } from "./analytics";
-import { playNotificationSound } from "./sound";
-import { isWithinQuietHours } from "@/shared/quiet-hours";
+import { playNotificationSound, unlockNotificationSound } from "./sound";
+import { notificationsPaused } from "@/shared/quiet-hours";
 import { toggleReactionGroup, withReacted } from "@/shared/reactions";
 import type { MentionDirectory } from "@/shared/mention-text";
 import type {
@@ -36,6 +36,20 @@ import type {
   WorkspaceBootstrap,
   WorkspaceMembership
 } from "@/shared/types";
+
+/** Notification kinds that are worth interrupting someone for. */
+export const ALERTING_NOTIFICATION_TYPES = ["mention", "dm", "thread_reply", "keyword", "reminder"];
+
+/** Quiet hours, DND and the sound toggle all have to be clear before we chime. */
+function soundAllowed(session: SessionUser | null | undefined) {
+  if (!session) return false;
+  if (session.preferences?.notificationSound === false) return false;
+  return !notificationsPaused({
+    quietHours: { start: session.preferences?.quietHoursStart, end: session.preferences?.quietHoursEnd },
+    timeZone: session.timezone,
+    dndUntil: session.dndUntil
+  });
+}
 
 /* -------------------------------------------------------------------------- */
 /* State                                                                       */
@@ -942,6 +956,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
             } else {
               void actions.refreshConversations();
             }
+
+            // "Every new message" has to chime here: an ordinary channel message
+            // raises no notification row, so the `notification.created` branch
+            // below never sees it. `playNotificationSound` throttles, so a
+            // mention that fires both paths still only sounds once.
+            const membership = stateRef.current.bootstrap?.conversations.find(
+              (conversation) => conversation.id === event.conversationId
+            )?.membership;
+            const audible = !membership?.muted && membership?.notificationLevel === "all";
+            if (
+              stateRef.current.session?.preferences?.desktopNotifications === "all" &&
+              audible &&
+              soundAllowed(stateRef.current.session)
+            ) {
+              playNotificationSound();
+            }
           }
           break;
         }
@@ -979,16 +1009,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           break;
         case "notification.created": {
           dispatch({ type: "notification", notification: event.notification });
-          const wanted = ["mention", "dm", "thread_reply", "keyword", "reminder"].includes(event.notification.type);
-          const preferences = stateRef.current.session?.preferences;
-          const quiet = isWithinQuietHours(
-            { start: preferences?.quietHoursStart, end: preferences?.quietHoursEnd },
-            new Date(),
-            stateRef.current.session?.timezone
-          );
-          if (wanted && !quiet && preferences?.notificationSound !== false) {
-            playNotificationSound();
-          }
+          const wanted = ALERTING_NOTIFICATION_TYPES.includes(event.notification.type);
+          if (wanted && soundAllowed(stateRef.current.session)) playNotificationSound();
           break;
         }
         case "conversation.updated":
@@ -1030,6 +1052,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", onFocus);
     };
   }, [actions]);
+
+  // Reminders and quiet hours are evaluated in `users.timezone`, but signup has
+  // no way to ask the browser — everyone starts on the "UTC" column default.
+  // Syncing here fills it in, and follows people when they travel.
+  useEffect(() => {
+    const session = stateRef.current.session;
+    if (!session) return;
+    const browser = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!browser || browser === session.timezone) return;
+    void actions.updateProfile({ timezone: browser }).catch(() => undefined);
+  }, [state.session?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Realtime is an accelerator, not a guarantee: the socket may never connect
+  // (a self-host without the realtime process) or may miss a stretch while the
+  // laptop sleeps. Nothing replays those events, so resync whenever the
+  // connection state changes and keep polling for as long as it is down.
+  useEffect(() => {
+    if (!state.session || !state.workspaceId) return;
+    const resync = () => {
+      void actions.refreshConversations();
+      void actions.loadNotifications();
+    };
+    resync();
+    if (state.connected) return;
+    const timer = setInterval(resync, 30_000);
+    return () => clearInterval(timer);
+  }, [state.connected, state.session?.id, state.workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Audio has to be armed from inside a real gesture or every chime is silent.
+  useEffect(() => {
+    const unlock = () => unlockNotificationSound();
+    const options = { once: true } as const;
+    window.addEventListener("pointerdown", unlock, options);
+    window.addEventListener("keydown", unlock, options);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
 
   // Typing indicators fade out on their own.
   useEffect(() => {

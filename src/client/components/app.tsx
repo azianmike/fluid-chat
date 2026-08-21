@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
-import { isWithinQuietHours } from "@/shared/quiet-hours";
-import { AppProvider, useApp } from "../store";
+import { useEffect, useRef } from "react";
+import { notificationsPaused } from "@/shared/quiet-hours";
+import { ALERTING_NOTIFICATION_TYPES, AppProvider, useApp } from "../store";
 import { AuthScreen, WorkspaceSetupScreen } from "./auth-screen";
 import { Sidebar } from "./shell/sidebar";
 import { WorkspaceRail } from "./shell/workspace-rail";
@@ -242,27 +242,65 @@ function useHotkeys() {
   }, [actions, state.modal, state.rightPanel]);
 }
 
+/**
+ * Desktop banners for activity that arrives while the app is not in front.
+ *
+ * Everything already in the list on the first run is treated as seen, so a
+ * reload or a refetch never replays yesterday's mentions, and each id fires at
+ * most once — three mentions in a row raise three banners rather than only the
+ * newest surviving as `notifications[0]`.
+ */
 function useDesktopNotifications() {
-  const { state } = useApp();
-  const preference = state.session?.preferences?.desktopNotifications ?? "mentions";
-  const latest = state.notifications[0];
-  const quiet = isWithinQuietHours(
-    {
-      start: state.session?.preferences?.quietHoursStart,
-      end: state.session?.preferences?.quietHoursEnd
-    },
-    new Date(),
-    state.session?.timezone
-  );
+  const { state, actions } = useApp();
+  const session = state.session;
+  const preference = session?.preferences?.desktopNotifications ?? "mentions";
+  const notifications = state.notifications;
+  const paused = notificationsPaused({
+    quietHours: { start: session?.preferences?.quietHoursStart, end: session?.preferences?.quietHoursEnd },
+    timeZone: session?.timezone,
+    dndUntil: session?.dndUntil
+  });
+
+  const seen = useRef<Set<string> | null>(null);
+  const loadedAt = useRef(Date.now());
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
 
   useEffect(() => {
-    if (!latest || preference === "none" || quiet) return;
+    const known = seen.current;
+    seen.current = new Set(notifications.map((entry) => entry.id));
+    // The first list only seeds the baseline; nothing on it is new to this tab.
+    if (!known) return;
+
+    const fresh = notifications.filter(
+      (entry) =>
+        !known.has(entry.id) &&
+        !entry.readAt &&
+        // The list is also filled by refetches, which can pull in unread rows
+        // that predate this tab. Those are history, not an interruption.
+        new Date(entry.createdAt).getTime() >= loadedAt.current
+    );
+    if (fresh.length === 0 || preference === "none" || paused) return;
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    if (document.visibilityState === "visible") return;
-    const relevant = ["mention", "dm", "thread_reply", "reminder", "keyword"].includes(latest.type);
-    if (preference === "mentions" && !relevant) return;
-    new Notification("Fluid Chat", { body: latest.body ?? "New activity", tag: latest.id });
-  }, [latest, preference, quiet]);
+    // `visibilityState` alone is not enough: a tab sitting behind another app is
+    // still "visible", which is exactly when someone wants to be told.
+    if (document.visibilityState === "visible" && document.hasFocus()) return;
+
+    for (const entry of fresh.slice(0, 3).reverse()) {
+      const relevant = ALERTING_NOTIFICATION_TYPES.includes(entry.type);
+      if (preference === "mentions" && !relevant) continue;
+      const banner = new Notification("Fluid Chat", {
+        body: entry.body ?? "New activity",
+        tag: entry.id,
+        icon: "/icon.svg"
+      });
+      banner.onclick = () => {
+        window.focus();
+        if (entry.conversationId) void actionsRef.current.openConversation(entry.conversationId);
+        banner.close();
+      };
+    }
+  }, [notifications, preference, paused]);
 }
 
 /** `/?conversation=…&message=…` opens a permalink from a copied message link. */

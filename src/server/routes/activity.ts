@@ -306,7 +306,7 @@ export const activityRoutes = defineRoutes({
         conversationId: z.string().uuid().optional()
       })
     );
-    const when = input.remindAt ?? parseWhen(input.inText ?? "")?.at;
+    const when = input.remindAt ?? parseWhen(input.inText ?? "", { timeZone: user.timezone })?.at;
     if (!when) throw new HttpError(400, "Could not understand that time", "invalid_time");
     const [reminder] = await db
       .insert(reminders)

@@ -1,6 +1,7 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
 import { conversationMembers, userGroupMembers, userGroups, users, workspaceMembers } from "@/db/schema";
+import { effectivePresence } from "./serializers";
 
 export type MentionTargets = {
   userIds: string[];
@@ -65,7 +66,15 @@ export async function resolveMentionedUserIds(options: {
   }
 
   const members = await db
-    .select({ userId: users.id, handle: users.handle, displayName: users.displayName, email: users.email })
+    .select({
+      userId: users.id,
+      handle: users.handle,
+      displayName: users.displayName,
+      email: users.email,
+      presence: users.presence,
+      lastActiveAt: users.lastActiveAt,
+      dndUntil: users.dndUntil
+    })
     .from(conversationMembers)
     .innerJoin(users, eq(users.id, conversationMembers.userId))
     .where(and(eq(conversationMembers.conversationId, options.conversationId), isNull(conversationMembers.leftAt)));
@@ -73,8 +82,15 @@ export async function resolveMentionedUserIds(options: {
   const matched = new Set<string>();
   const broadcast = targets.broadcasts.length > 0;
 
-  if (broadcast) {
+  // `@channel`/`@everyone` reach every member; `@here` is explicitly only the
+  // people who are around right now, which is what the composer hint promises.
+  const reachesEveryone = targets.broadcasts.some((entry) => entry !== "here");
+  if (reachesEveryone) {
     for (const member of members) matched.add(member.userId);
+  } else if (targets.broadcasts.includes("here")) {
+    for (const member of members) {
+      if (effectivePresence(member) === "active") matched.add(member.userId);
+    }
   }
 
   const directIds = new Set(targets.userIds);
@@ -131,4 +147,20 @@ export function mentionedInBody(bodyText: string, userId: string, handles: strin
   if (targets.broadcasts.length > 0) return true;
   const lowered = handles.map((handle) => handle.toLowerCase());
   return targets.handles.some((handle) => lowered.includes(handle));
+}
+
+/**
+ * Display names for every `<@id>` in a body so `toPlainText` can render
+ * "@Ada Lovelace" instead of its "@someone" fallback. Returns undefined when
+ * there is nothing to resolve, which is the shape `toPlainText` expects.
+ */
+export async function mentionNameResolver(bodyText: string) {
+  const ids = parseMentions(bodyText).userIds;
+  if (ids.length === 0) return undefined;
+  const rows = await db
+    .select({ id: users.id, displayName: users.displayName })
+    .from(users)
+    .where(inArray(users.id, ids));
+  const nameById = new Map(rows.map((row) => [row.id, row.displayName]));
+  return { user: (id: string) => nameById.get(id) };
 }

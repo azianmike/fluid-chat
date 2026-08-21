@@ -16,7 +16,7 @@ import type { MessageDto } from "@/shared/types";
 import { addChannelMembers, joinChannel, leaveChannel, openDirectConversation } from "./conversations";
 import { createMessage, postSystemMessage } from "./messages";
 import { setPresence, setStatus } from "./presence";
-import { parseWhen } from "./time";
+import { formatInZone, parseWhen } from "./time";
 
 export type SlashOutcome =
   | { kind: "message"; message: MessageDto }
@@ -197,7 +197,7 @@ export async function runSlashCommand(raw: string, context: CommandContext): Pro
 
     case "remind": {
       const body = args.replace(/^me\s+/i, "");
-      const when = parseWhen(body);
+      const when = parseWhen(body, { timeZone: context.actor.timezone });
       if (!when) return ephemeral("Try: /remind me to ship the release in 30 minutes");
       const text = body
         .replace(/\bin\s+\d+\s*\w+\b/i, "")
@@ -212,14 +212,16 @@ export async function runSlashCommand(raw: string, context: CommandContext): Pro
         text: text || "Reminder",
         remindAt: when.at
       });
-      return ephemeral(`Reminder set for ${when.at.toLocaleString()}.`);
+      return ephemeral(`Reminder set for ${formatInZone(when.at, context.actor.timezone)}.`);
     }
 
     case "dnd": {
-      const when = parseWhen(args.startsWith("in ") ? args : `in ${args || "30 minutes"}`);
+      const when = parseWhen(args.startsWith("in ") ? args : `in ${args || "30 minutes"}`, {
+        timeZone: context.actor.timezone
+      });
       const until = when?.at ?? new Date(Date.now() + 30 * 60_000);
       await setPresence(context.actor.id, "dnd", until);
-      return ephemeral(`Do Not Disturb until ${until.toLocaleTimeString()}.`);
+      return ephemeral(`Do Not Disturb until ${formatInZone(until, context.actor.timezone, { dateStyle: undefined })}.`);
     }
 
     case "away":

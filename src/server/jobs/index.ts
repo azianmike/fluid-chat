@@ -19,7 +19,7 @@ import {
 import { sendEmail } from "@/lib/email";
 import { toUser } from "@/lib/realtime";
 import { extractUrls, toPlainText } from "@/shared/markdown";
-import { isWithinQuietHours } from "@/shared/quiet-hours";
+import { notificationsPaused } from "@/shared/quiet-hours";
 import { createMessage } from "../services/messages";
 import { notify } from "../services/notifications";
 import { broadcastPresence, broadcastUserUpdate } from "../services/presence";
@@ -159,6 +159,9 @@ export async function expireStatuses() {
 /* Notification email digests                                                  */
 /* -------------------------------------------------------------------------- */
 
+/** At most this many emails leave per run, however large the candidate pool is. */
+const EMAIL_BATCH = 25;
+
 export async function sendNotificationEmails() {
   const pending = await db
     .select({ notification: notifications, user: users })
@@ -171,24 +174,43 @@ export async function sendNotificationEmails() {
         lte(notifications.createdAt, new Date(Date.now() - 15 * 60_000))
       )
     )
-    .limit(25);
+    .orderBy(notifications.createdAt)
+    // Deferred rows stay in the pool until their quiet hours end, so scan wider
+    // than we send: otherwise one person's overnight backlog fills every batch
+    // and nobody else's mail goes out.
+    .limit(EMAIL_BATCH * 8);
 
+  let sent = 0;
   for (const row of pending) {
+    if (sent >= EMAIL_BATCH) break;
+
     const preference = row.user.preferences?.emailNotifications ?? "mentions";
     const isDirect = ["mention", "dm", "thread_reply", "reminder"].includes(row.notification.type);
-    const quiet = isWithinQuietHours(
-      { start: row.user.preferences?.quietHoursStart, end: row.user.preferences?.quietHoursEnd },
-      new Date(),
-      row.user.timezone
-    );
-    const shouldSend = !quiet && (preference === "all" || (preference === "mentions" && isDirect));
-    if (shouldSend) {
-      await sendEmail({
-        to: row.user.email,
-        subject: subjectFor(row.notification.type),
-        text: `${row.notification.body ?? "You have a new notification."}\n\nOpen Fluid Chat: ${appUrl()}`
-      });
+    if (preference === "none" || (preference === "mentions" && !isDirect)) {
+      // A preference-based skip is permanent, so stamp it and stop rescanning.
+      await db.update(notifications).set({ emailSentAt: new Date() }).where(eq(notifications.id, row.notification.id));
+      continue;
     }
+
+    // Quiet hours and DND defer; they must not silently drop the email. Leaving
+    // `emailSentAt` null means the next run picks the row up again once the
+    // window closes.
+    if (
+      notificationsPaused({
+        quietHours: { start: row.user.preferences?.quietHoursStart, end: row.user.preferences?.quietHoursEnd },
+        timeZone: row.user.timezone,
+        dndUntil: row.user.dndUntil
+      })
+    ) {
+      continue;
+    }
+
+    await sendEmail({
+      to: row.user.email,
+      subject: subjectFor(row.notification.type),
+      text: `${row.notification.body ?? "You have a new notification."}\n\nOpen Fluid Chat: ${appUrl()}`
+    });
+    sent += 1;
     await db.update(notifications).set({ emailSentAt: new Date() }).where(eq(notifications.id, row.notification.id));
   }
 }

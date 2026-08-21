@@ -19,6 +19,7 @@ import type { ChannelSummary, ConversationSummary } from "@/shared/types";
 import { toChannelSummary, toConversationSummary } from "./serializers";
 import { conversationActivity } from "./unread";
 import { postSystemMessage } from "./messages";
+import { notify } from "./notifications";
 
 /* -------------------------------------------------------------------------- */
 /* Channels                                                                    */
@@ -193,6 +194,18 @@ export async function addChannelMembers(options: {
     valid.map((entry) => entry.userId),
     { type: "conversation.updated", conversationId: options.conversation.id }
   );
+
+  // Being pulled into a channel is activity worth telling someone about; the
+  // system message alone is invisible until they happen to open the channel.
+  await notify({
+    workspaceId: options.channel.workspaceId,
+    conversationId: options.conversation.id,
+    actorUserId: options.actor.id,
+    type: "channel_invite",
+    body: `${options.actor.displayName} added you to #${options.channel.name}`,
+    userIds: valid.map((entry) => entry.userId).filter((userId) => userId !== options.actor.id)
+  });
+
   return valid.map((entry) => entry.userId);
 }
 

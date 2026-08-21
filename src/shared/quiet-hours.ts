@@ -37,3 +37,22 @@ export function isWithinQuietHours(quiet: QuietHours | null | undefined, date = 
   const now = localMinutes(date, timeZone);
   return start < end ? now >= start && now < end : now >= start || now < end;
 }
+
+/**
+ * Whether alerts should be held back right now: either the person is inside
+ * their quiet-hours window, or they have an unexpired "do not disturb".
+ *
+ * Activity-feed rows are still written either way — this only gates the noisy
+ * channels (sound, desktop banners, email), which is what /dnd promises.
+ */
+export function notificationsPaused(
+  options: {
+    quietHours?: QuietHours | null;
+    timeZone?: string | null;
+    dndUntil?: string | Date | null;
+  },
+  date = new Date()
+) {
+  if (options.dndUntil && new Date(options.dndUntil).getTime() > date.getTime()) return true;
+  return isWithinQuietHours(options.quietHours, date, options.timeZone ?? undefined);
+}

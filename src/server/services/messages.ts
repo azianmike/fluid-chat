@@ -21,7 +21,7 @@ import type { MessageDto, ReactionGroup } from "@/shared/types";
 import { requireWorkspaceMember } from "@/lib/permissions";
 import { requireWorkspaceWritable } from "@/lib/billing";
 import { deliverableRecipients, keywordRecipients, notify } from "./notifications";
-import { resolveMentionedUserIds } from "./mentions";
+import { mentionNameResolver, resolveMentionedUserIds } from "./mentions";
 import { followedThreadIds, threadFollowersFor } from "./threads";
 import { toFileSummary, toIso } from "./serializers";
 
@@ -347,7 +347,9 @@ export async function createMessage(input: CreateMessageInput): Promise<MessageD
 
 async function fanOutMessageNotifications(options: { conversation: Conversation; sender: User; message: Message }) {
   const { conversation, sender, message } = options;
-  const preview = toPlainText(message.bodyText).slice(0, 280);
+  // Resolve names first so the preview reads "@Ada Lovelace", not "@someone" —
+  // this body is what lands in the activity feed, the desktop banner and email.
+  const preview = toPlainText(message.bodyText, await mentionNameResolver(message.bodyText)).slice(0, 280);
 
   const { userIds: mentionedIds } = await resolveMentionedUserIds({
     workspaceId: conversation.workspaceId,

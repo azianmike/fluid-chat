@@ -147,6 +147,8 @@ function describeNotification(type: string) {
       return "reminder";
     case "keyword":
       return "said a keyword you follow in";
+    case "channel_invite":
+      return "added you to a channel";
     default:
       return type;
   }

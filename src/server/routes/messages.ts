@@ -23,7 +23,8 @@ import {
   postSystemMessage,
   updateMessage
 } from "../services/messages";
-import { notify } from "../services/notifications";
+import { deliverableRecipients, notify } from "../services/notifications";
+import { mentionNameResolver } from "../services/mentions";
 import { openDirectConversation } from "../services/conversations";
 import { setThreadSubscription } from "../services/threads";
 import { parseWhen } from "../services/time";
@@ -97,15 +98,24 @@ export const messageRoutes = defineRoutes({
     });
 
     if (created && message.senderId !== user.id) {
-      await notify({
-        workspaceId: message.workspaceId,
+      // A muted conversation stays muted for reactions too — this path used to
+      // notify the author unconditionally.
+      const allowed = await deliverableRecipients({
         conversationId: message.conversationId,
-        messageId: message.id,
-        actorUserId: user.id,
-        type: "reaction",
-        body: `${input.emoji} on "${toPlainText(message.bodyText).slice(0, 80)}"`,
-        userIds: [message.senderId]
+        excludeUserId: user.id
       });
+      if (allowed.includes(message.senderId)) {
+        const preview = toPlainText(message.bodyText, await mentionNameResolver(message.bodyText)).slice(0, 80);
+        await notify({
+          workspaceId: message.workspaceId,
+          conversationId: message.conversationId,
+          messageId: message.id,
+          actorUserId: user.id,
+          type: "reaction",
+          body: `${input.emoji} on "${preview}"`,
+          userIds: [message.senderId]
+        });
+      }
     }
     void access;
     return json({ reactions: withReacted(groups, user.id) }, 201);
@@ -207,7 +217,7 @@ export const messageRoutes = defineRoutes({
     const input = await ctx.input(
       z.object({ remindAt: z.coerce.date().optional(), inText: z.string().max(120).optional() })
     );
-    const when = input.remindAt ?? parseWhen(input.inText ?? "in 30 minutes")?.at;
+    const when = input.remindAt ?? parseWhen(input.inText ?? "in 30 minutes", { timeZone: user.timezone })?.at;
     if (!when) throw new HttpError(400, "Could not understand that time", "invalid_time");
     const [reminder] = await db
       .insert(reminders)

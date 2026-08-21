@@ -659,6 +659,7 @@ export function PreferencesModal({ onClose }: { onClose: () => void }) {
             <input type="checkbox" checked={preferences.notificationSound !== false} onChange={(event) => set({ notificationSound: event.target.checked })} />
             <span>
               <strong>Play a sound for new messages</strong>
+              <small>Follows the desktop setting above, and pauses during your notification schedule.</small>
             </span>
           </label>
           <label className="field">
